@@ -40,12 +40,15 @@ FIB_FARBEN = {
 }
 
 PERIODEN = {
-    '1mo':  {'yf': '1mo',  'interval': '1d',  'label': '1 Monat'},
-    '3mo':  {'yf': '3mo',  'interval': '1d',  'label': '3 Monate'},
-    '6mo':  {'yf': '6mo',  'interval': '1d',  'label': '6 Monate'},
-    '1y':   {'yf': '1y',   'interval': '1d',  'label': '1 Jahr'},
-    '2y':   {'yf': '2y',   'interval': '1wk', 'label': '2 Jahre'},
-    '5y':   {'yf': '5y',   'interval': '1wk', 'label': '5 Jahre'},
+    '1d':   {'yf': '1d',  'interval': '5m',  'label': '1 Tag (5min)',   'fenster': 5, 'intraday': True},
+    '5d':   {'yf': '5d',  'interval': '15m', 'label': '5 Tage (15min)', 'fenster': 5, 'intraday': True},
+    '1wk':  {'yf': '5d',  'interval': '1h',  'label': '1 Woche (1h)',   'fenster': 4, 'intraday': True},
+    '1mo':  {'yf': '1mo',  'interval': '1d',  'label': '1 Monat',       'fenster': 10, 'intraday': False},
+    '3mo':  {'yf': '3mo',  'interval': '1d',  'label': '3 Monate',      'fenster': 10, 'intraday': False},
+    '6mo':  {'yf': '6mo',  'interval': '1d',  'label': '6 Monate',      'fenster': 10, 'intraday': False},
+    '1y':   {'yf': '1y',   'interval': '1d',  'label': '1 Jahr',        'fenster': 10, 'intraday': False},
+    '2y':   {'yf': '2y',   'interval': '1wk', 'label': '2 Jahre',       'fenster': 8,  'intraday': False},
+    '5y':   {'yf': '5y',   'interval': '1wk', 'label': '5 Jahre',       'fenster': 8,  'intraday': False},
 }
 
 WAEHRUNG_SYMBOLE = {
@@ -380,7 +383,8 @@ def berechne_zonen(levels: dict, toleranz_pct: float = 0.5):
 # ── Plotly-Chart ──────────────────────────────────────────────────────────────
 
 def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
-                   hoch: float, tief: float, richtung: str, ticker: str):
+                   hoch: float, tief: float, richtung: str, ticker: str,
+                   intraday: bool = False):
 
     fig = go.Figure()
 
@@ -446,9 +450,11 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         margin=dict(l=10, r=120, t=30, b=30),
         height=520,
         showlegend=False,
-        xaxis_rangebreaks=[
-            dict(bounds=['sat', 'mon']),
-        ],
+        xaxis_rangebreaks=(
+            [dict(bounds=['sat', 'mon']), dict(bounds=[20, 4], pattern='hour')]
+            if intraday else
+            [dict(bounds=['sat', 'mon'])]
+        ),
     )
 
     return fig.to_json()
@@ -801,6 +807,7 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
 # ── Haupt-Analyse-Funktion ────────────────────────────────────────────────────
 
 def analysiere(ticker: str, periode: str = '1y'):
+    cfg = PERIODEN.get(periode, PERIODEN['1y'])
     df, name, waehrung, fehler = lade_daten(ticker, periode)
     if fehler:
         return {'fehler': fehler}
@@ -811,7 +818,9 @@ def analysiere(ticker: str, periode: str = '1y'):
     aktuell = ind['aktuell']
 
     # Swing-Erkennung
-    fenster = 10 if len(df) >= 60 else 5
+    fenster = cfg.get('fenster', 10)
+    if len(df) < fenster * 3:
+        fenster = max(2, len(df) // 5)
     hoch, tief, richtung = markantester_swing(df, fenster)
 
     # Fibonacci-Levels
@@ -829,7 +838,8 @@ def analysiere(ticker: str, periode: str = '1y'):
     signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
     # Chart
-    chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker)
+    intraday = cfg.get('intraday', False)
+    chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
 
     # Tagesveränderung
     change_abs = aktuell - ind['vortag']
