@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fibonacci Aktienanalyse</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dark-body">
+
+<div class="container py-5">
+  <div class="text-center mb-5">
+    <div class="fib-logo mb-3">φ</div>
+    <h1 class="display-5 fw-bold text-white">Fibonacci Aktienanalyse</h1>
+    <p class="text-muted fs-5">Wahrscheinlichkeiten, Support- & Resistance-Zonen basierend auf dem Fibonacci-Prinzip</p>
+  </div>
+
+  {% if fehler %}
+  <div class="alert alert-danger alert-dismissible fade show mx-auto" style="max-width:600px" role="alert">
+    <i class="bi bi-exclamation-triangle me-2"></i>{{ fehler }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endif %}
+
+  <!-- Suchformular -->
+  <div class="card search-card mx-auto mb-5" style="max-width:620px">
+    <div class="card-body p-4">
+      <form action="/analyse" method="get">
+        <div class="mb-3">
+          <label class="form-label text-white fw-semibold">Aktie, ETF oder Kryptowährung</label>
+          <input type="text" name="ticker" class="form-control form-control-lg dark-input"
+                 placeholder="z.B. AAPL, NVDA, BTC-USD, SAP.DE …"
+                 value="{{ letzter_ticker or '' }}" autofocus required>
+          <div class="form-text text-muted">
+            US-Aktien: AAPL · Deutsche Aktien: SAP.DE · Krypto: BTC-USD · Indizes: ^DAX
+          </div>
+        </div>
+        <div class="mb-4">
+          <label class="form-label text-white fw-semibold">Zeitraum</label>
+          <div class="d-flex flex-wrap gap-2">
+            {% for key, cfg in perioden.items() %}
+            <div class="form-check period-check">
+              <input class="form-check-input" type="radio" name="periode" id="p_{{ key }}"
+                     value="{{ key }}" {% if key == '1y' %}checked{% endif %}>
+              <label class="form-check-label" for="p_{{ key }}">{{ cfg.label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <button type="submit" class="btn btn-fib btn-lg w-100">
+          <i class="bi bi-graph-up-arrow me-2"></i>Analyse starten
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Schnellzugriff -->
+  <div class="text-center mb-3">
+    <span class="text-muted small">Schnellzugriff:</span>
+  </div>
+  <div class="d-flex flex-wrap justify-content-center gap-2 mb-5">
+    {% for t in beliebte %}
+    <a href="/analyse?ticker={{ t.symbol }}&periode=1y" class="btn btn-quick">
+      <span class="ticker-symbol">{{ t.symbol }}</span>
+      <span class="ticker-name">{{ t.name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Info-Karten -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="info-card">
+        <div class="info-icon">📐</div>
+        <h6 class="text-white">Fibonacci-Levels</h6>
+        <p class="text-muted small">Berechnet automatisch Retracements (23,6 % – 100 %) und Extensions (127,2 % – 261,8 %) aus dem markantesten Swing.</p>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="info-card">
+        <div class="info-icon">🎯</div>
+        <h6 class="text-white">Support & Resistance</h6>
+        <p class="text-muted small">Confluence-Zonen wo mehrere Fibonacci-Levels zusammentreffen. Je mehr Levels, desto stärker die Zone.</p>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="info-card">
+        <div class="info-icon">📊</div>
+        <h6 class="text-white">Wahrscheinlichkeit</h6>
+        <p class="text-muted small">Multi-Faktor-Score aus Fib-Position, EMA-Trend, RSI, MACD und Volumen. Kein Finanzberater — nur technische Analyse.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-center text-muted small">
+    ⚠️ Dieses Tool dient ausschließlich zu Bildungszwecken. Keine Anlageberatung.
+    Vergangene Kurse sind kein Indikator für zukünftige Entwicklungen.
+  </p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
