@@ -220,6 +220,98 @@
 
   </div>
 
+  <!-- Daytrading Box -->
+  {% set dt = d.daytrade %}
+  <div class="daytrade-box {% if dt.kein_signal %}daytrade-neutral{% elif dt.richtung == 'LONG' %}daytrade-long{% else %}daytrade-short{% endif %} mb-3">
+
+    <div class="daytrade-header">
+      <div class="daytrade-title">
+        <i class="bi bi-lightning-fill me-1"></i> Daytrading Signal
+        <span class="text-muted small ms-2">(Intraday — Position heute schließen)</span>
+      </div>
+      {% if dt.kein_signal %}
+        <span class="daytrade-badge badge-neutral">⚪ KEIN KLARES SIGNAL</span>
+      {% elif dt.richtung == 'LONG' %}
+        <span class="daytrade-badge badge-long">🟢 LONG — KAUFEN</span>
+      {% else %}
+        <span class="daytrade-badge badge-short">🔴 SHORT — SHORTEN</span>
+      {% endif %}
+    </div>
+
+    {% if not dt.kein_signal %}
+    <div class="row g-2 mt-2">
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Einstieg (jetzt)</div>
+          <div class="daytrade-metric-value">{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">
+            {% if dt.richtung == 'LONG' %}Position schließen bei{% else %}Position schließen bei{% endif %}
+            <span class="{% if dt.richtung == 'LONG' %}text-success{% else %}text-danger{% endif %}"> (Take Profit)</span>
+          </div>
+          <div class="daytrade-metric-value {% if dt.richtung == 'LONG' %}text-success{% else %}text-danger{% endif %}">
+            {{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}
+            <span class="small">{% if dt.richtung == 'LONG' %}+{% else %}-{% endif %}{{ dt.tp_pct }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Stop-Loss <span class="text-danger">(Notausstieg)</span></div>
+          <div class="daytrade-metric-value text-danger">
+            {{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}
+            <span class="small">-{{ dt.sl_pct }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Chance / Risiko</div>
+          <div class="daytrade-metric-value {% if dt.rr >= 2 %}text-success{% elif dt.rr >= 1 %}text-warning{% else %}text-danger{% endif %}">
+            {{ dt.rr }}:1
+            <span class="small text-muted">{% if dt.rr >= 2 %}Gut{% elif dt.rr >= 1 %}OK{% else %}Schlecht{% endif %}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Gründe -->
+    <div class="daytrade-gruende mt-2">
+      {% for g in dt.gruende %}
+        <span class="daytrade-grund {% if dt.richtung == 'LONG' %}grund-long{% else %}grund-short{% endif %}">{{ g }}</span>
+      {% endfor %}
+    </div>
+
+    <!-- Hinweis -->
+    <div class="daytrade-hinweis mt-2">
+      <i class="bi bi-info-circle me-1"></i>
+      {% if dt.richtung == 'LONG' %}
+        Kaufe jetzt bei <strong>{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</strong>,
+        schließe die Position bei <strong>{{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}</strong>.
+        Stop-Loss bei <strong>{{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}</strong> nicht vergessen.
+      {% else %}
+        Shorte jetzt bei <strong>{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</strong>,
+        schließe die Short-Position bei <strong>{{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}</strong>.
+        Stop-Loss bei <strong>{{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}</strong> nicht vergessen.
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="text-muted mt-2 small">
+      <i class="bi bi-info-circle me-1"></i>
+      Long- und Short-Signale sind zu ausgeglichen — besser abwarten bis ein klarer Trend entsteht.
+    </div>
+    {% endif %}
+
+  </div>
+
   <!-- Chart + rechte Spalte -->
   <div class="row g-3">
 

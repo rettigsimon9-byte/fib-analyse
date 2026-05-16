@@ -657,6 +657,134 @@ def erkenne_kerzenformation(df: pd.DataFrame):
 
     return None
 
+# ── Daytrading Signal ────────────────────────────────────────────────────────
+
+def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
+                              richtung: str, hoch: float, tief: float):
+    """
+    Berechnet ein klares LONG/SHORT Daytrading-Signal mit Take-Profit und Stop-Loss.
+    Ziel: Position am selben Tag schließen.
+    """
+    rsi   = ind['rsi']
+    ema20 = ind['ema20']
+    ema50 = ind['ema50']
+    macd  = ind['macd']
+    msig  = ind['macd_signal']
+    atr   = ind['atr']
+
+    alle_preise  = sorted(levels.values())
+    supports     = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
+    resistances  = sorted([p for p in alle_preise if p > aktuell * 1.0005])
+
+    naechster_support   = supports[0]    if supports    else tief
+    naechste_resistance = resistances[0] if resistances else hoch
+
+    abstand_sup_pct = (aktuell - naechster_support)   / aktuell * 100
+    abstand_res_pct = (naechste_resistance - aktuell) / aktuell * 100
+
+    # ── Score LONG vs SHORT ───────────────────────────────────────────────────
+    long_score  = 0
+    short_score = 0
+    gruende_long  = []
+    gruende_short = []
+
+    # RSI
+    if rsi < 30:
+        long_score += 3
+        gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
+    elif rsi < 45:
+        long_score += 1
+        gruende_long.append(f'RSI leicht überverkauft ({rsi:.0f})')
+    elif rsi > 70:
+        short_score += 3
+        gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
+    elif rsi > 55:
+        short_score += 1
+        gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
+
+    # MACD Momentum
+    if macd > msig:
+        long_score += 2
+        gruende_long.append('MACD bullisches Momentum')
+    else:
+        short_score += 2
+        gruende_short.append('MACD bärisches Momentum')
+
+    # EMA-Trend
+    if aktuell > ema20 > ema50:
+        long_score += 2
+        gruende_long.append('Aufwärtstrend (Preis > EMA20 > EMA50)')
+    elif aktuell < ema20 < ema50:
+        short_score += 2
+        gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
+
+    # Fibonacci-Position
+    if abstand_sup_pct < abstand_res_pct and abstand_sup_pct < 1.5:
+        long_score += 2
+        gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
+    elif abstand_res_pct < abstand_sup_pct and abstand_res_pct < 1.5:
+        short_score += 2
+        gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
+
+    # Swing-Richtung
+    if richtung == 'aufwärts':
+        long_score += 1
+    else:
+        short_score += 1
+
+    # ── Richtung bestimmen ────────────────────────────────────────────────────
+    dt_richtung = 'LONG' if long_score >= short_score else 'SHORT'
+
+    total      = long_score + short_score or 1
+    staerke    = round(max(long_score, short_score) / total * 100)
+    gruende    = gruende_long if dt_richtung == 'LONG' else gruende_short
+
+    # Kein klares Signal wenn Scores zu nah beieinander
+    kein_signal = abs(long_score - short_score) <= 1
+
+    # ── Preisziele ────────────────────────────────────────────────────────────
+    if dt_richtung == 'LONG':
+        take_profit = naechste_resistance
+        stop_loss   = naechster_support - (atr * 0.3)
+        tp_pct      = (take_profit - aktuell) / aktuell * 100
+        sl_pct      = (aktuell - stop_loss)   / aktuell * 100
+    else:
+        take_profit = naechster_support
+        stop_loss   = naechste_resistance + (atr * 0.3)
+        tp_pct      = (aktuell - take_profit) / aktuell * 100
+        sl_pct      = (stop_loss - aktuell)   / aktuell * 100
+
+    # Stop-Loss mindestens 0.3%, maximal 2% (Intraday)
+    sl_pct = max(0.3, min(2.0, sl_pct))
+    if dt_richtung == 'LONG':
+        stop_loss = aktuell * (1 - sl_pct / 100)
+    else:
+        stop_loss = aktuell * (1 + sl_pct / 100)
+
+    # Take-Profit mindestens 0.5%
+    tp_pct = max(0.5, tp_pct)
+    if dt_richtung == 'LONG':
+        take_profit = max(take_profit, aktuell * 1.005)
+    else:
+        take_profit = min(take_profit, aktuell * 0.995)
+
+    rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
+
+    return {
+        'richtung':    dt_richtung,
+        'kein_signal': kein_signal,
+        'staerke':     staerke,
+        'einstieg':    round(aktuell,      2),
+        'take_profit': round(take_profit,  2),
+        'stop_loss':   round(stop_loss,    2),
+        'tp_pct':      round(tp_pct,       2),
+        'sl_pct':      round(sl_pct,       2),
+        'rr':          rr,
+        'gruende':     gruende,
+        'long_score':  long_score,
+        'short_score': short_score,
+    }
+
 # ── Handelssignal Algorithmus ─────────────────────────────────────────────────
 
 SIGNAL_TEXTE = {
@@ -938,6 +1066,9 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
     # Handelssignal
     signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
+    # Daytrading Signal
+    daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief)
+
     # Chart (nur wenn benötigt)
     if mit_chart:
         intraday = cfg.get('intraday', False)
@@ -996,5 +1127,6 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         },
         'chart_json':  chart_json,
         'signal':      signal,
+        'daytrade':    daytrade,
         'fehler':      None,
     }
