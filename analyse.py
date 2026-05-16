@@ -1040,93 +1040,101 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
     df, name, waehrung, fehler = lade_daten(ticker, periode)
     if fehler:
         return {'fehler': fehler}
+
+    # Mindestens 15 Kerzen nötig für sinnvolle Analyse
+    if len(df) < 15:
+        return {'fehler': f'Zu wenige Datenpunkte für "{PERIODEN.get(periode,{}).get("label", periode)}" — Markt möglicherweise geschlossen oder keine Intraday-Daten verfügbar.'}
+
     waehrung_symbol = WAEHRUNG_SYMBOLE.get(waehrung, waehrung)
 
-    # Technische Indikatoren
-    ind = berechne_indikatoren(df)
-    aktuell = ind['aktuell']
+    try:
+        # Technische Indikatoren
+        ind     = berechne_indikatoren(df)
+        aktuell = ind['aktuell']
 
-    # Swing-Erkennung
-    fenster = cfg.get('fenster', 10)
-    if len(df) < fenster * 3:
-        fenster = max(2, len(df) // 5)
-    hoch, tief, richtung = markantester_swing(df, fenster)
+        # Swing-Erkennung
+        fenster = cfg.get('fenster', 10)
+        if len(df) < fenster * 3:
+            fenster = max(2, len(df) // 5)
+        hoch, tief, richtung = markantester_swing(df, fenster)
 
-    # Fibonacci-Levels
-    levels = berechne_fib_levels(hoch, tief, richtung)
+        # Fibonacci-Levels
+        levels = berechne_fib_levels(hoch, tief, richtung)
 
-    # Zonen
-    zonen = berechne_zonen(levels)
+        # Zonen
+        zonen = berechne_zonen(levels)
 
-    # Wahrscheinlichkeit
-    wkeit, faktoren, support, resistance = berechne_wahrscheinlichkeit(
-        aktuell, levels, ind, richtung
-    )
+        # Wahrscheinlichkeit
+        wkeit, faktoren, support, resistance = berechne_wahrscheinlichkeit(
+            aktuell, levels, ind, richtung
+        )
 
-    # Handelssignal
-    signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
+        # Handelssignal
+        signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
-    # Daytrading Signal
-    daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief)
+        # Daytrading Signal
+        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief)
 
-    # Chart (nur wenn benötigt)
-    if mit_chart:
-        intraday = cfg.get('intraday', False)
-        chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
-    else:
-        chart_json = None
+        # Chart (nur wenn benötigt)
+        if mit_chart:
+            intraday  = cfg.get('intraday', False)
+            chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
+        else:
+            chart_json = None
 
-    # Tagesveränderung
-    change_abs = aktuell - ind['vortag']
-    change_pct = change_abs / ind['vortag'] * 100 if ind['vortag'] else 0
+        # Tagesveränderung
+        change_abs = aktuell - ind['vortag']
+        change_pct = change_abs / ind['vortag'] * 100 if ind['vortag'] else 0
 
-    # Levels für Tabelle aufbereiten (sortiert nach Preis, mit Typ)
-    alle_levels = []
-    for name_l, preis in sorted(levels.items(), key=lambda x: x[1], reverse=True):
-        abstand = (preis - aktuell) / aktuell * 100
-        typ = 'resistance' if preis > aktuell else ('support' if preis < aktuell else 'aktuell')
-        alle_levels.append({
-            'name':    name_l,
-            'preis':   preis,
-            'abstand': abstand,
-            'typ':     typ,
-            'farbe':   FIB_FARBEN.get(name_l, '#888'),
-        })
+        # Levels für Tabelle aufbereiten (sortiert nach Preis, mit Typ)
+        alle_levels = []
+        for name_l, preis in sorted(levels.items(), key=lambda x: x[1], reverse=True):
+            abstand = (preis - aktuell) / aktuell * 100
+            typ = 'resistance' if preis > aktuell else ('support' if preis < aktuell else 'aktuell')
+            alle_levels.append({
+                'name':    name_l,
+                'preis':   preis,
+                'abstand': abstand,
+                'typ':     typ,
+                'farbe':   FIB_FARBEN.get(name_l, '#888'),
+            })
 
-    return {
-        'ticker':         ticker.upper(),
-        'name':           name,
-        'waehrung':       waehrung,
-        'waehrung_symbol': waehrung_symbol,
-        'periode':        PERIODEN.get(periode, PERIODEN['1y'])['label'],
-        'aktuell':        aktuell,
-        'change_abs':  change_abs,
-        'change_pct':  change_pct,
-        'hoch':        hoch,
-        'tief':        tief,
-        'richtung':    richtung,
-        'swing_spanne': hoch - tief,
-        'wahrscheinlichkeit_bullisch': wkeit,
-        'wahrscheinlichkeit_baerisch': round(100 - wkeit, 1),
-        'faktoren':    faktoren,
-        'support':     support,
-        'resistance':  resistance,
-        'levels':      alle_levels,
-        'zonen':       zonen,
-        'indikatoren': {
-            'rsi':    ind['rsi'],
-            'ema20':  round(ind['ema20'],  2),
-            'ema50':  round(ind['ema50'],  2),
-            'ema200': round(ind['ema200'], 2),
-            'macd':   round(ind['macd'],   4),
-            'macd_signal': round(ind['macd_signal'], 4),
-            'atr':    round(ind['atr'],    2),
-            'hoch52w': ind['hoch52w'],
-            'tief52w': ind['tief52w'],
-            'volumen_ratio': round(ind['volumen_ratio'], 2),
-        },
-        'chart_json':  chart_json,
-        'signal':      signal,
-        'daytrade':    daytrade,
-        'fehler':      None,
-    }
+        return {
+            'ticker':          ticker.upper(),
+            'name':            name,
+            'waehrung':        waehrung,
+            'waehrung_symbol': waehrung_symbol,
+            'periode':         PERIODEN.get(periode, PERIODEN['1y'])['label'],
+            'aktuell':         aktuell,
+            'change_abs':      change_abs,
+            'change_pct':      change_pct,
+            'hoch':            hoch,
+            'tief':            tief,
+            'richtung':        richtung,
+            'swing_spanne':    hoch - tief,
+            'wahrscheinlichkeit_bullisch': wkeit,
+            'wahrscheinlichkeit_baerisch': round(100 - wkeit, 1),
+            'faktoren':    faktoren,
+            'support':     round(support,    2) if support    is not None else round(tief, 2),
+            'resistance':  round(resistance, 2) if resistance is not None else round(hoch, 2),
+            'levels':      alle_levels,
+            'zonen':       zonen,
+            'indikatoren': {
+                'rsi':         ind['rsi'],
+                'ema20':       round(ind['ema20'],  2),
+                'ema50':       round(ind['ema50'],  2),
+                'ema200':      round(ind['ema200'], 2),
+                'macd':        round(ind['macd'],   4),
+                'macd_signal': round(ind['macd_signal'], 4),
+                'atr':         round(ind['atr'],    2),
+                'hoch52w':     ind['hoch52w'],
+                'tief52w':     ind['tief52w'],
+                'volumen_ratio': round(ind['volumen_ratio'], 2),
+            },
+            'chart_json':  chart_json,
+            'signal':      signal,
+            'daytrade':    daytrade,
+            'fehler':      None,
+        }
+    except Exception as e:
+        return {'fehler': f'Analyse fehlgeschlagen: {str(e)}'}
