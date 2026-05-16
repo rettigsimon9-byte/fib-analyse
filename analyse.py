@@ -426,32 +426,31 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         decreasing_fillcolor='#ef4444',
     ), row=1, col=1)
 
-    # Fibonacci-Levels — Labels versetzt damit sie sich nicht überlappen
-    sorted_levels = sorted(levels.items(), key=lambda x: x[1])
-    prev_price   = None
-    xshift_idx   = 0
-    xshift_stufen = [0, 75, 150]  # 3 horizontale Positionen zum Ausweichen
+    # Fibonacci-Levels — Label nur zeigen wenn genug Abstand zum letzten Label
+    sorted_levels     = sorted(levels.items(), key=lambda x: x[1])
+    preis_range       = df['High'].max() - df['Low'].min()
+    min_abstand       = preis_range * 0.035  # mind. 3.5% der sichtbaren Range
+    letzter_label_preis = None
 
     for name, preis in sorted_levels:
         farbe = FIB_FARBEN.get(name, '#888888')
         ist_extension = any(x in name for x in ['127', '138', '161', '200', '261'])
 
-        # Wenn Level zu nah am vorherigen → Label nach rechts verschieben
-        if prev_price and abs(preis - prev_price) / max(prev_price, 1e-9) < 0.005:
-            xshift_idx = (xshift_idx + 1) % len(xshift_stufen)
-        else:
-            xshift_idx = 0
+        # Label nur wenn genug Abstand zum vorherigen Label
+        zeige_label = (letzter_label_preis is None or
+                       abs(preis - letzter_label_preis) >= min_abstand)
 
         fig.add_hline(
             y=preis, row=1, col=1,
-            line=dict(color=farbe, width=1.2 if not ist_extension else 0.8,
+            line=dict(color=farbe,
+                      width=1.2 if not ist_extension else 0.8,
                       dash='solid' if not ist_extension else 'dash'),
-            annotation_text=f'{name}  {preis:.2f}',
+            annotation_text=f'{name}  {preis:.2f}' if zeige_label else '',
             annotation_position='right',
-            annotation_xshift=xshift_stufen[xshift_idx],
             annotation_font=dict(size=9, color=farbe),
         )
-        prev_price = preis
+        if zeige_label:
+            letzter_label_preis = preis
 
     # Swing-Hoch / Tief
     fig.add_hline(y=hoch, row=1, col=1,
