@@ -68,12 +68,20 @@ def multi():
 
     resultate = {}
     for p in MULTI_PERIODEN:
-        resultate[p['key']] = analysiere(ticker, p['key'], mit_chart=False)
+        try:
+            resultate[p['key']] = analysiere(ticker, p['key'], mit_chart=False)
+        except Exception as e:
+            resultate[p['key']] = {'fehler': str(e)}
 
     # Erstes erfolgreiches Ergebnis für Name/Währung
     meta = next((r for r in resultate.values() if not r.get('fehler')), None)
     if not meta:
-        return redirect('/?fehler=1')
+        return render_template('index.html',
+            beliebte=BELIEBTE_TICKER,
+            perioden=PERIODEN,
+            fehler=f'Ticker "{ticker}" konnte nicht geladen werden.',
+            letzter_ticker=ticker,
+        )
 
     return render_template('multi.html',
         ticker=ticker,

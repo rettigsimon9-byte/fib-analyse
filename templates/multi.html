@@ -31,13 +31,12 @@
   <p class="text-muted small mb-4">Signale über alle Zeitrahmen auf einen Blick — stimmen mehrere überein, ist das Signal stärker.</p>
 
   <!-- Gesamt-Confluenz -->
-  {% set bull_count = [] %}
-  {% set bear_count = [] %}
+  {% set ns = namespace(bull=0, bear=0) %}
   {% for p in perioden_liste %}
     {% set r = resultate[p.key] %}
-    {% if not r.get('fehler') %}
-      {% if r.signal.typ in ['KAUFEN', 'BEOBACHTEN'] %}{% set _ = bull_count.append(1) %}{% endif %}
-      {% if r.signal.typ in ['MEIDEN', 'VORSICHT'] %}{% set _ = bear_count.append(1) %}{% endif %}
+    {% if not r.fehler %}
+      {% if r.signal.typ in ['KAUFEN', 'BEOBACHTEN'] %}{% set ns.bull = ns.bull + 1 %}{% endif %}
+      {% if r.signal.typ in ['MEIDEN', 'VORSICHT'] %}{% set ns.bear = ns.bear + 1 %}{% endif %}
     {% endif %}
   {% endfor %}
 
@@ -47,22 +46,22 @@
     </div>
     <div class="dark-card-body d-flex align-items-center gap-4 flex-wrap">
       <div class="text-center">
-        <div class="fs-2 fw-bold text-success">{{ bull_count|length }}</div>
+        <div class="fs-2 fw-bold text-success">{{ ns.bull }}</div>
         <div class="text-muted small">Bullische Zeitrahmen</div>
       </div>
       <div class="text-center">
-        <div class="fs-2 fw-bold text-danger">{{ bear_count|length }}</div>
+        <div class="fs-2 fw-bold text-danger">{{ ns.bear }}</div>
         <div class="text-muted small">Bärische Zeitrahmen</div>
       </div>
       <div class="ms-md-4">
-        {% if bull_count|length >= 3 %}
-          <span class="badge bg-success fs-6 px-3 py-2">🟢 Starkes Kaufsignal — {{ bull_count|length }}/{{ perioden_liste|length }} Zeitrahmen bullisch</span>
-        {% elif bull_count|length == 2 %}
-          <span class="badge bg-warning text-dark fs-6 px-3 py-2">🟡 Leicht bullisch — {{ bull_count|length }}/{{ perioden_liste|length }} Zeitrahmen</span>
-        {% elif bear_count|length >= 3 %}
-          <span class="badge bg-danger fs-6 px-3 py-2">🔴 Starkes Verkaufssignal — {{ bear_count|length }}/{{ perioden_liste|length }} Zeitrahmen bärisch</span>
-        {% elif bear_count|length == 2 %}
-          <span class="badge bg-orange fs-6 px-3 py-2">🟠 Leicht bärisch — {{ bear_count|length }}/{{ perioden_liste|length }} Zeitrahmen</span>
+        {% if ns.bull >= 3 %}
+          <span class="badge bg-success fs-6 px-3 py-2">🟢 Starkes Kaufsignal — {{ ns.bull }}/{{ perioden_liste|length }} Zeitrahmen bullisch</span>
+        {% elif ns.bull == 2 %}
+          <span class="badge bg-warning text-dark fs-6 px-3 py-2">🟡 Leicht bullisch — {{ ns.bull }}/{{ perioden_liste|length }} Zeitrahmen</span>
+        {% elif ns.bear >= 3 %}
+          <span class="badge bg-danger fs-6 px-3 py-2">🔴 Starkes Verkaufssignal — {{ ns.bear }}/{{ perioden_liste|length }} Zeitrahmen bärisch</span>
+        {% elif ns.bear == 2 %}
+          <span class="badge bg-warning text-dark fs-6 px-3 py-2">🟠 Leicht bärisch — {{ ns.bear }}/{{ perioden_liste|length }} Zeitrahmen</span>
         {% else %}
           <span class="badge bg-secondary fs-6 px-3 py-2">⚪ Gemischt — kein klares Signal</span>
         {% endif %}
@@ -83,7 +82,7 @@
           </a>
         </div>
         <div class="dark-card-body">
-          {% if r.get('fehler') %}
+          {% if r.fehler %}
             <div class="text-danger small">{{ r.fehler }}</div>
           {% else %}
 
