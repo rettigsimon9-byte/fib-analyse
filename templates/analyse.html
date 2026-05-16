@@ -19,6 +19,9 @@
   <span class="stock-name">{{ d.name }}</span>
   <span class="waehrung-badge">{{ d.waehrung_symbol }} {{ d.waehrung }}</span>
   <div class="ms-auto d-flex align-items-center gap-2">
+    <button id="watchlist-btn" onclick="toggleWatchlist()" class="btn btn-sm btn-ghost" title="Zur Watchlist hinzufügen">
+      <i id="watchlist-icon" class="bi bi-star"></i>
+    </button>
     <form action="/analyse" method="get" class="d-flex gap-1 align-items-center">
       <input type="hidden" name="ticker" value="{{ d.ticker }}">
       {% for key, cfg in perioden.items() %}
@@ -404,6 +407,38 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script>
+  // Watchlist
+  const TICKER = '{{ d.ticker }}';
+  const NAME   = '{{ d.name }}';
+
+  function getWatchlist() {
+    return JSON.parse(localStorage.getItem('watchlist') || '[]');
+  }
+
+  function toggleWatchlist() {
+    let list = getWatchlist();
+    const idx = list.findIndex(t => t.symbol === TICKER);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+    } else {
+      list.push({ symbol: TICKER, name: NAME });
+    }
+    localStorage.setItem('watchlist', JSON.stringify(list));
+    updateWatchlistBtn();
+  }
+
+  function updateWatchlistBtn() {
+    const inList = getWatchlist().some(t => t.symbol === TICKER);
+    document.getElementById('watchlist-icon').className = inList
+      ? 'bi bi-star-fill text-warning'
+      : 'bi bi-star';
+    document.getElementById('watchlist-btn').title = inList
+      ? 'Von Watchlist entfernen'
+      : 'Zur Watchlist hinzufügen';
+  }
+
+  updateWatchlistBtn();
+
   const chartData = {{ d.chart_json | safe }};
   Plotly.newPlot('chart', chartData.data, chartData.layout, {
     responsive: true,

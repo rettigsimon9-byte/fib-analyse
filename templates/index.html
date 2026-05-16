@@ -56,6 +56,19 @@
     </div>
   </div>
 
+  <!-- Watchlist -->
+  <div id="watchlist-section" class="mb-4" style="display:none">
+    <div class="dark-card">
+      <div class="dark-card-header">
+        <i class="bi bi-star-fill text-warning me-2"></i>Meine Watchlist
+        <span id="watchlist-count" class="badge bg-secondary ms-2">0</span>
+      </div>
+      <div class="dark-card-body">
+        <div id="watchlist-items" class="d-flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Schnellzugriff -->
   <div class="text-center mb-3">
     <span class="text-muted small">Schnellzugriff:</span>
@@ -101,5 +114,54 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  function getWatchlist() {
+    return JSON.parse(localStorage.getItem('watchlist') || '[]');
+  }
+
+  function removeFromWatchlist(ticker) {
+    const list = getWatchlist().filter(t => t.symbol !== ticker);
+    localStorage.setItem('watchlist', JSON.stringify(list));
+    renderWatchlist();
+  }
+
+  function renderWatchlist() {
+    const list = getWatchlist();
+    const section = document.getElementById('watchlist-section');
+    const container = document.getElementById('watchlist-items');
+    const count = document.getElementById('watchlist-count');
+
+    if (list.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = 'block';
+    count.textContent = list.length;
+    container.innerHTML = '';
+
+    list.forEach(t => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'd-flex align-items-center gap-1';
+
+      const link = document.createElement('a');
+      link.href = `/analyse?ticker=${t.symbol}&periode=1y`;
+      link.className = 'btn btn-quick';
+      link.innerHTML = `<span class="ticker-symbol">${t.symbol}</span><span class="ticker-name">${t.name || t.symbol}</span>`;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn btn-sm btn-ghost text-danger px-1';
+      removeBtn.title = 'Entfernen';
+      removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+      removeBtn.onclick = () => removeFromWatchlist(t.symbol);
+
+      wrapper.appendChild(link);
+      wrapper.appendChild(removeBtn);
+      container.appendChild(wrapper);
+    });
+  }
+
+  renderWatchlist();
+</script>
 </body>
 </html>
