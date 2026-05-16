@@ -907,7 +907,7 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
 
 # ── Haupt-Analyse-Funktion ────────────────────────────────────────────────────
 
-def analysiere(ticker: str, periode: str = '1y'):
+def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
     cfg = PERIODEN.get(periode, PERIODEN['1y'])
     df, name, waehrung, fehler = lade_daten(ticker, periode)
     if fehler:
@@ -938,9 +938,12 @@ def analysiere(ticker: str, periode: str = '1y'):
     # Handelssignal
     signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
-    # Chart
-    intraday = cfg.get('intraday', False)
-    chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
+    # Chart (nur wenn benötigt)
+    if mit_chart:
+        intraday = cfg.get('intraday', False)
+        chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
+    else:
+        chart_json = None
 
     # Tagesveränderung
     change_abs = aktuell - ind['vortag']

@@ -68,7 +68,7 @@ def multi():
 
     resultate = {}
     for p in MULTI_PERIODEN:
-        resultate[p['key']] = analysiere(ticker, p['key'])
+        resultate[p['key']] = analysiere(ticker, p['key'], mit_chart=False)
 
     # Erstes erfolgreiches Ergebnis für Name/Währung
     meta = next((r for r in resultate.values() if not r.get('fehler')), None)
