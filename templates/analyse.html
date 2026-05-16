@@ -283,6 +283,15 @@
 
     </div>
 
+    <!-- Widerspruchs-Warnung -->
+    {% if dt.widerspruch %}
+    <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+      ⚠️ <strong>Achtung:</strong> Dieses Daytrading-Signal widerspricht dem Gesamtbild der Analyse
+      ({{ d.wahrscheinlichkeit_bullisch }}% bullisch / {{ d.wahrscheinlichkeit_baerisch }}% bärisch).
+      Erhöhtes Risiko — nur mit engem Stop-Loss handeln!
+    </div>
+    {% endif %}
+
     <!-- Gründe -->
     <div class="daytrade-gruende mt-2">
       {% for g in dt.gruende %}

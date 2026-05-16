@@ -659,7 +659,8 @@ def erkenne_kerzenformation(df: pd.DataFrame):
 # ── Daytrading Signal ────────────────────────────────────────────────────────
 
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
-                              richtung: str, hoch: float, tief: float):
+                              richtung: str, hoch: float, tief: float,
+                              bullisch_pct: float = 50.0):
     """
     Berechnet ein klares LONG/SHORT Daytrading-Signal mit Take-Profit und Stop-Loss.
     Ziel: Position am selben Tag schließen.
@@ -731,6 +732,18 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     else:
         short_score += 1
 
+    # ── Gesamtbild einbeziehen (starkes Gesamtsignal überstimmt) ─────────────
+    if bullisch_pct >= 65:
+        long_score += 3
+        gruende_long.append(f'Gesamtanalyse bullisch ({bullisch_pct:.0f}%)')
+    elif bullisch_pct >= 55:
+        long_score += 1
+    elif bullisch_pct <= 35:
+        short_score += 3
+        gruende_short.append(f'Gesamtanalyse bärisch ({100 - bullisch_pct:.0f}% bärisch)')
+    elif bullisch_pct <= 45:
+        short_score += 1
+
     # ── Richtung bestimmen ────────────────────────────────────────────────────
     dt_richtung = 'LONG' if long_score >= short_score else 'SHORT'
 
@@ -740,6 +753,10 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
 
     # Kein klares Signal wenn Scores zu nah beieinander
     kein_signal = abs(long_score - short_score) <= 1
+
+    # Widerspruch: Daytrading-Richtung gegen Gesamtbild
+    widerspruch = (dt_richtung == 'LONG'  and bullisch_pct < 40) or \
+                  (dt_richtung == 'SHORT' and bullisch_pct > 60)
 
     # ── Preisziele ────────────────────────────────────────────────────────────
     if dt_richtung == 'LONG':
@@ -781,6 +798,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         'rr':          rr,
         'gruende':     gruende,
         'long_score':  long_score,
+        'widerspruch': widerspruch,
         'short_score': short_score,
     }
 
@@ -1072,7 +1090,7 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
         # Daytrading Signal
-        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief)
+        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief, wkeit)
 
         # Chart (nur wenn benötigt)
         if mit_chart:
