@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import json
 
 # ── Fibonacci-Konstanten ──────────────────────────────────────────────────────
@@ -386,9 +387,34 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                    hoch: float, tief: float, richtung: str, ticker: str,
                    intraday: bool = False):
 
-    fig = go.Figure()
+    # ── Indikatoren berechnen für Subcharts ──────────────────────────────────
+    close = df['Close']
 
-    # Candlestick
+    # RSI-Serie
+    delta    = close.diff()
+    gain     = delta.clip(lower=0)
+    loss     = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(com=13, adjust=False).mean()
+    avg_loss = loss.ewm(com=13, adjust=False).mean()
+    rs       = avg_gain / avg_loss.replace(0, 1e-9)
+    rsi_serie = 100 - (100 / (1 + rs))
+
+    # MACD-Serie
+    ema12       = close.ewm(span=12, adjust=False).mean()
+    ema26       = close.ewm(span=26, adjust=False).mean()
+    macd_line   = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    histogram   = macd_line - signal_line
+
+    # ── Subplots anlegen ─────────────────────────────────────────────────────
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.02,
+        row_heights=[0.55, 0.15, 0.15, 0.15],
+    )
+
+    # ── Row 1: Candlestick ───────────────────────────────────────────────────
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df['Open'], high=df['High'],
@@ -398,32 +424,48 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         decreasing_line_color='#ef4444',
         increasing_fillcolor='#22c55e',
         decreasing_fillcolor='#ef4444',
-    ))
+    ), row=1, col=1)
 
-    # Fibonacci-Levels als horizontale Linien
-    for name, preis in sorted(levels.items(), key=lambda x: x[1]):
+    # Fibonacci-Levels — Labels versetzt damit sie sich nicht überlappen
+    sorted_levels = sorted(levels.items(), key=lambda x: x[1])
+    prev_price   = None
+    xshift_idx   = 0
+    xshift_stufen = [0, 75, 150]  # 3 horizontale Positionen zum Ausweichen
+
+    for name, preis in sorted_levels:
         farbe = FIB_FARBEN.get(name, '#888888')
         ist_extension = any(x in name for x in ['127', '138', '161', '200', '261'])
+
+        # Wenn Level zu nah am vorherigen → Label nach rechts verschieben
+        if prev_price and abs(preis - prev_price) / max(prev_price, 1e-9) < 0.005:
+            xshift_idx = (xshift_idx + 1) % len(xshift_stufen)
+        else:
+            xshift_idx = 0
+
         fig.add_hline(
-            y=preis,
+            y=preis, row=1, col=1,
             line=dict(color=farbe, width=1.2 if not ist_extension else 0.8,
                       dash='solid' if not ist_extension else 'dash'),
-            annotation_text=f'  {name}  {preis:.2f}',
+            annotation_text=f'{name}  {preis:.2f}',
             annotation_position='right',
+            annotation_xshift=xshift_stufen[xshift_idx],
             annotation_font=dict(size=9, color=farbe),
         )
+        prev_price = preis
 
-    # Swing-Hoch und Tief markieren
-    fig.add_hline(y=hoch, line=dict(color='#dc2626', width=1.5, dash='dot'),
+    # Swing-Hoch / Tief
+    fig.add_hline(y=hoch, row=1, col=1,
+                  line=dict(color='#dc2626', width=1.5, dash='dot'),
                   annotation_text=f'  Swing-Hoch {hoch:.2f}',
                   annotation_position='right',
                   annotation_font=dict(size=9, color='#dc2626'))
-    fig.add_hline(y=tief, line=dict(color='#16a34a', width=1.5, dash='dot'),
+    fig.add_hline(y=tief, row=1, col=1,
+                  line=dict(color='#16a34a', width=1.5, dash='dot'),
                   annotation_text=f'  Swing-Tief {tief:.2f}',
                   annotation_position='right',
                   annotation_font=dict(size=9, color='#16a34a'))
 
-    # Zonen als Rechtecke
+    # Confluence-Zonen
     for zone in zonen:
         if zone['staerke'] >= 2:
             fig.add_hrect(
@@ -431,30 +473,89 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                 y1=zone['preis_max'] * 1.001,
                 fillcolor='rgba(59,130,246,0.08)',
                 line_width=0,
+                row=1, col=1,
             )
+
+    # ── Row 2: Volumen ───────────────────────────────────────────────────────
+    vol_farben = ['#22c55e' if c >= o else '#ef4444'
+                  for c, o in zip(df['Close'], df['Open'])]
+    fig.add_trace(go.Bar(
+        x=df.index, y=df['Volume'],
+        marker_color=vol_farben,
+        name='Volumen',
+        showlegend=False,
+    ), row=2, col=1)
+
+    # ── Row 3: RSI ───────────────────────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=df.index, y=rsi_serie,
+        line=dict(color='#a78bfa', width=1.5),
+        name='RSI',
+        showlegend=False,
+    ), row=3, col=1)
+    fig.add_hline(y=70, row=3, col=1,
+                  line=dict(color='#ef4444', width=0.8, dash='dot'),
+                  annotation_text='  70', annotation_position='right',
+                  annotation_font=dict(size=8, color='#ef4444'))
+    fig.add_hline(y=30, row=3, col=1,
+                  line=dict(color='#22c55e', width=0.8, dash='dot'),
+                  annotation_text='  30', annotation_position='right',
+                  annotation_font=dict(size=8, color='#22c55e'))
+    fig.add_hline(y=50, row=3, col=1,
+                  line=dict(color='#475569', width=0.5, dash='dot'))
+
+    # ── Row 4: MACD ──────────────────────────────────────────────────────────
+    hist_farben = ['#22c55e' if v >= 0 else '#ef4444' for v in histogram]
+    fig.add_trace(go.Bar(
+        x=df.index, y=histogram,
+        marker_color=hist_farben,
+        name='Histogramm',
+        showlegend=False,
+    ), row=4, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=macd_line,
+        line=dict(color='#3b82f6', width=1.2),
+        name='MACD',
+        showlegend=False,
+    ), row=4, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=signal_line,
+        line=dict(color='#f97316', width=1.2),
+        name='Signal',
+        showlegend=False,
+    ), row=4, col=1)
+    fig.add_hline(y=0, row=4, col=1,
+                  line=dict(color='#475569', width=0.5))
+
+    # ── Layout ───────────────────────────────────────────────────────────────
+    rangebreaks = (
+        [dict(bounds=['sat', 'mon']), dict(bounds=[20, 4], pattern='hour')]
+        if intraday else
+        [dict(bounds=['sat', 'mon'])]
+    )
+
+    axis_style = dict(gridcolor='#1e293b', showgrid=True, rangebreaks=rangebreaks)
 
     fig.update_layout(
         paper_bgcolor='#0f172a',
         plot_bgcolor='#0f172a',
         font=dict(color='#94a3b8', size=10),
-        xaxis=dict(
-            gridcolor='#1e293b',
-            showgrid=True,
-            rangeslider_visible=False,
-        ),
-        yaxis=dict(
-            gridcolor='#1e293b',
-            showgrid=True,
-            side='right',
-        ),
-        margin=dict(l=10, r=120, t=30, b=30),
-        height=520,
+        margin=dict(l=10, r=200, t=30, b=10),
+        height=850,
         showlegend=False,
-        xaxis_rangebreaks=(
-            [dict(bounds=['sat', 'mon']), dict(bounds=[20, 4], pattern='hour')]
-            if intraday else
-            [dict(bounds=['sat', 'mon'])]
-        ),
+        barmode='relative',
+        xaxis =dict(**axis_style, rangeslider_visible=False),
+        xaxis2=dict(**axis_style),
+        xaxis3=dict(**axis_style),
+        xaxis4=dict(**axis_style),
+        yaxis =dict(gridcolor='#1e293b', showgrid=True, side='right'),
+        yaxis2=dict(gridcolor='#1e293b', showgrid=True, side='right',
+                    title=dict(text='Vol', font=dict(size=9, color='#64748b'))),
+        yaxis3=dict(gridcolor='#1e293b', showgrid=True, side='right',
+                    range=[0, 100],
+                    title=dict(text='RSI', font=dict(size=9, color='#a78bfa'))),
+        yaxis4=dict(gridcolor='#1e293b', showgrid=True, side='right',
+                    title=dict(text='MACD', font=dict(size=9, color='#3b82f6'))),
     )
 
     return fig.to_json()
