@@ -19,6 +19,9 @@
   <span class="stock-name">{{ d.name }}</span>
   <span class="waehrung-badge">{{ d.waehrung_symbol }} {{ d.waehrung }}</span>
   <div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/multi?ticker={{ d.ticker }}" class="btn btn-sm btn-ghost" title="Multi-Timeframe Ansicht">
+      <i class="bi bi-layers me-1"></i>Multi-TF
+    </a>
     <button id="watchlist-btn" onclick="toggleWatchlist()" class="btn btn-sm btn-ghost" title="Zur Watchlist hinzufügen">
       <i id="watchlist-icon" class="bi bi-star"></i>
     </button>

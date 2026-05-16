@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ ticker }} – Multi-Timeframe</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dark-body">
+
+<!-- Topbar -->
+<nav class="analyse-topbar">
+  <a href="/" class="btn btn-sm btn-ghost me-3">
+    <i class="bi bi-arrow-left"></i> Zurück
+  </a>
+  <span class="ticker-badge">{{ ticker }}</span>
+  <span class="stock-name">{{ meta.name }}</span>
+  <span class="waehrung-badge">{{ meta.waehrung_symbol }} {{ meta.waehrung }}</span>
+  <div class="ms-auto">
+    <a href="/analyse?ticker={{ ticker }}&periode=1y" class="btn btn-sm btn-ghost">
+      <i class="bi bi-graph-up me-1"></i>Detailansicht
+    </a>
+  </div>
+</nav>
+
+<div class="container-fluid px-3 pt-4 pb-5">
+
+  <h5 class="text-white mb-1">Multi-Timeframe Analyse</h5>
+  <p class="text-muted small mb-4">Signale über alle Zeitrahmen auf einen Blick — stimmen mehrere überein, ist das Signal stärker.</p>
+
+  <!-- Gesamt-Confluenz -->
+  {% set bull_count = [] %}
+  {% set bear_count = [] %}
+  {% for p in perioden_liste %}
+    {% set r = resultate[p.key] %}
+    {% if not r.get('fehler') %}
+      {% if r.signal.typ in ['KAUFEN', 'BEOBACHTEN'] %}{% set _ = bull_count.append(1) %}{% endif %}
+      {% if r.signal.typ in ['MEIDEN', 'VORSICHT'] %}{% set _ = bear_count.append(1) %}{% endif %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="dark-card mb-4">
+    <div class="dark-card-header">
+      <i class="bi bi-layers me-1"></i> Gesamt-Confluenz
+    </div>
+    <div class="dark-card-body d-flex align-items-center gap-4 flex-wrap">
+      <div class="text-center">
+        <div class="fs-2 fw-bold text-success">{{ bull_count|length }}</div>
+        <div class="text-muted small">Bullische Zeitrahmen</div>
+      </div>
+      <div class="text-center">
+        <div class="fs-2 fw-bold text-danger">{{ bear_count|length }}</div>
+        <div class="text-muted small">Bärische Zeitrahmen</div>
+      </div>
+      <div class="ms-md-4">
+        {% if bull_count|length >= 3 %}
+          <span class="badge bg-success fs-6 px-3 py-2">🟢 Starkes Kaufsignal — {{ bull_count|length }}/{{ perioden_liste|length }} Zeitrahmen bullisch</span>
+        {% elif bull_count|length == 2 %}
+          <span class="badge bg-warning text-dark fs-6 px-3 py-2">🟡 Leicht bullisch — {{ bull_count|length }}/{{ perioden_liste|length }} Zeitrahmen</span>
+        {% elif bear_count|length >= 3 %}
+          <span class="badge bg-danger fs-6 px-3 py-2">🔴 Starkes Verkaufssignal — {{ bear_count|length }}/{{ perioden_liste|length }} Zeitrahmen bärisch</span>
+        {% elif bear_count|length == 2 %}
+          <span class="badge bg-orange fs-6 px-3 py-2">🟠 Leicht bärisch — {{ bear_count|length }}/{{ perioden_liste|length }} Zeitrahmen</span>
+        {% else %}
+          <span class="badge bg-secondary fs-6 px-3 py-2">⚪ Gemischt — kein klares Signal</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Zeitrahmen-Karten -->
+  <div class="row g-3">
+    {% for p in perioden_liste %}
+    {% set r = resultate[p.key] %}
+    <div class="col-sm-6 col-xl-3">
+      <div class="dark-card h-100">
+        <div class="dark-card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-clock me-1"></i>{{ p.label }}</span>
+          <a href="/analyse?ticker={{ ticker }}&periode={{ p.key }}" class="btn btn-xs-period">
+            Detail <i class="bi bi-arrow-right"></i>
+          </a>
+        </div>
+        <div class="dark-card-body">
+          {% if r.get('fehler') %}
+            <div class="text-danger small">{{ r.fehler }}</div>
+          {% else %}
+
+            <!-- Signal -->
+            <div class="text-center mb-3">
+              <span class="badge bg-{{ r.signal.farbe }} fs-6 px-3 py-2 w-100">{{ r.signal.text }}</span>
+              <div class="mt-2">
+                <div class="signal-bar-outer mx-auto" style="max-width:200px">
+                  <div class="signal-bar-inner bg-{{ r.signal.farbe }}" style="width:{{ r.signal.staerke }}%"></div>
+                </div>
+                <div class="text-muted small mt-1">Stärke: {{ r.signal.staerke }}%</div>
+              </div>
+            </div>
+
+            <!-- Kennzahlen -->
+            <table class="table table-dark table-sm mb-0">
+              <tr>
+                <td class="text-muted">Kurs</td>
+                <td class="text-end text-white fw-mono">{{ '%.2f'|format(r.aktuell) }} {{ r.waehrung_symbol }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted">Bullisch</td>
+                <td class="text-end fw-mono {% if r.wahrscheinlichkeit_bullisch >= 55 %}text-success{% elif r.wahrscheinlichkeit_bullisch <= 45 %}text-danger{% else %}text-warning{% endif %}">
+                  {{ r.wahrscheinlichkeit_bullisch }}%
+                </td>
+              </tr>
+              <tr>
+                <td class="text-muted">RSI</td>
+                <td class="text-end fw-mono {% if r.indikatoren.rsi < 35 %}text-success{% elif r.indikatoren.rsi > 65 %}text-danger{% else %}text-white{% endif %}">
+                  {{ r.indikatoren.rsi }}
+                </td>
+              </tr>
+              <tr>
+                <td class="text-muted">Swing</td>
+                <td class="text-end {% if r.richtung == 'aufwärts' %}text-success{% else %}text-danger{% endif %}">
+                  {% if r.richtung == 'aufwärts' %}↗ Aufwärts{% else %}↘ Abwärts{% endif %}
+                </td>
+              </tr>
+              <tr>
+                <td class="text-muted">EMA-Trend</td>
+                <td class="text-end">
+                  {% if r.aktuell > r.indikatoren.ema200 %}
+                    <span class="text-success">↗ Über EMA200</span>
+                  {% else %}
+                    <span class="text-danger">↘ Unter EMA200</span>
+                  {% endif %}
+                </td>
+              </tr>
+              <tr>
+                <td class="text-muted">Support</td>
+                <td class="text-end text-success fw-mono">{{ '%.2f'|format(r.support) }} {{ r.waehrung_symbol }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted">Widerstand</td>
+                <td class="text-end text-danger fw-mono">{{ '%.2f'|format(r.resistance) }} {{ r.waehrung_symbol }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted">Einstieg</td>
+                <td class="text-end text-white fw-mono">{{ '%.2f'|format(r.signal.einstieg) }} {{ r.waehrung_symbol }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted">Stop-Loss</td>
+                <td class="text-end text-danger fw-mono">{{ '%.2f'|format(r.signal.stop_loss) }} {{ r.waehrung_symbol }} <span class="small">−{{ r.signal.stop_loss_pct }}%</span></td>
+              </tr>
+            </table>
+
+            <!-- Kursziele -->
+            <div class="mt-3">
+              <div class="text-muted small mb-1">Kursziele</div>
+              <div class="d-flex gap-2 flex-wrap">
+                <div class="signal-metric flex-fill text-center">
+                  <div class="signal-metric-label">Ziel 1</div>
+                  <div class="text-success fw-mono small">{{ '%.2f'|format(r.signal.ziel_1) }}</div>
+                  <div class="text-success" style="font-size:0.7rem">+{{ r.signal.ziel_1_pct }}% R:R {{ r.signal.rr_1 }}</div>
+                </div>
+                <div class="signal-metric flex-fill text-center">
+                  <div class="signal-metric-label">Ziel 2</div>
+                  <div class="text-success fw-mono small">{{ '%.2f'|format(r.signal.ziel_2) }}</div>
+                  <div class="text-success" style="font-size:0.7rem">+{{ r.signal.ziel_2_pct }}% R:R {{ r.signal.rr_2 }}</div>
+                </div>
+                <div class="signal-metric flex-fill text-center">
+                  <div class="signal-metric-label">Ziel 3</div>
+                  <div class="text-success fw-mono small">{{ '%.2f'|format(r.signal.ziel_3) }}</div>
+                  <div class="text-success" style="font-size:0.7rem">+{{ r.signal.ziel_3_pct }}% R:R {{ r.signal.rr_3 }}</div>
+                </div>
+              </div>
+            </div>
+
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect
 from analyse import analysiere, PERIODEN
 
 app = Flask(__name__)
@@ -51,6 +51,35 @@ def analyse():
         d=ergebnis,
         perioden=PERIODEN,
         aktuelle_periode=periode,
+    )
+
+MULTI_PERIODEN = [
+    {'key': '5d',  'label': '5 Tage'},
+    {'key': '1mo', 'label': '1 Monat'},
+    {'key': '6mo', 'label': '6 Monate'},
+    {'key': '1y',  'label': '1 Jahr'},
+]
+
+@app.route('/multi')
+def multi():
+    ticker = request.args.get('ticker', '').strip().upper()
+    if not ticker:
+        return redirect('/')
+
+    resultate = {}
+    for p in MULTI_PERIODEN:
+        resultate[p['key']] = analysiere(ticker, p['key'])
+
+    # Erstes erfolgreiches Ergebnis für Name/Währung
+    meta = next((r for r in resultate.values() if not r.get('fehler')), None)
+    if not meta:
+        return redirect('/?fehler=1')
+
+    return render_template('multi.html',
+        ticker=ticker,
+        meta=meta,
+        resultate=resultate,
+        perioden_liste=MULTI_PERIODEN,
     )
 
 @app.route('/api/analyse')
