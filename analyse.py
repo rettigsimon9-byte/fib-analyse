@@ -901,8 +901,8 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         'bedingungen':   bedingungen,
         'divergenz':     divergenz,
         'formation':     formation,
-        'support':       round(naechster_support,   2),
-        'resistance':    round(naechste_resistance, 2),
+        'support':       round(naechster_support,   2) if naechster_support   is not None else round(tief, 2),
+        'resistance':    round(naechste_resistance, 2) if naechste_resistance is not None else round(hoch, 2),
     }
 
 # ── Haupt-Analyse-Funktion ────────────────────────────────────────────────────
