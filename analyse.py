@@ -204,7 +204,10 @@ def berechne_fib_levels(hoch: float, tief: float, richtung: str):
 # ── Technische Indikatoren ────────────────────────────────────────────────────
 
 def berechne_indikatoren(df: pd.DataFrame):
-    close = df['Close']
+    close  = df['Close']
+    high   = df['High']
+    low    = df['Low']
+    volume = df['Volume']
     indikatoren = {}
 
     # EMAs
@@ -213,9 +216,9 @@ def berechne_indikatoren(df: pd.DataFrame):
     indikatoren['ema200'] = close.ewm(span=200, adjust=False).mean().iloc[-1]
 
     # RSI (14)
-    delta = close.diff()
-    gain  = delta.clip(lower=0)
-    loss  = -delta.clip(upper=0)
+    delta    = close.diff()
+    gain     = delta.clip(lower=0)
+    loss     = -delta.clip(upper=0)
     avg_gain = gain.ewm(com=13, adjust=False).mean().iloc[-1]
     avg_loss = loss.ewm(com=13, adjust=False).mean().iloc[-1]
     if avg_loss == 0:
@@ -224,32 +227,75 @@ def berechne_indikatoren(df: pd.DataFrame):
         rs = avg_gain / avg_loss
         indikatoren['rsi'] = round(100 - (100 / (1 + rs)), 1)
 
-    # MACD (12, 26, 9)
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
+    # MACD (12, 26, 9) + Histogramm Vorperiode für echtes Kreuz
+    ema12       = close.ewm(span=12, adjust=False).mean()
+    ema26       = close.ewm(span=26, adjust=False).mean()
     macd_line   = ema12 - ema26
     signal_line = macd_line.ewm(span=9, adjust=False).mean()
-    indikatoren['macd']        = macd_line.iloc[-1]
-    indikatoren['macd_signal'] = signal_line.iloc[-1]
-    indikatoren['macd_hist']   = macd_line.iloc[-1] - signal_line.iloc[-1]
+    hist_serie  = macd_line - signal_line
+    indikatoren['macd']           = macd_line.iloc[-1]
+    indikatoren['macd_signal']    = signal_line.iloc[-1]
+    indikatoren['macd_hist']      = hist_serie.iloc[-1]
+    indikatoren['macd_hist_prev'] = hist_serie.iloc[-2] if len(hist_serie) > 1 else hist_serie.iloc[-1]
 
-    # Volumen-Trend (letzter Kerzen-Schnitt vs. 20-Periode-Schnitt)
-    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-    vol_letzt = df['Volume'].iloc[-1]
+    # Volumen-Trend
+    vol_avg   = volume.rolling(20).mean().iloc[-1]
+    vol_letzt = volume.iloc[-1]
     indikatoren['volumen_ratio'] = vol_letzt / vol_avg if vol_avg > 0 else 1.0
 
-    # ATR (14) für Volatilität
+    # ATR (14)
     tr = pd.concat([
-        df['High'] - df['Low'],
-        (df['High'] - df['Close'].shift()).abs(),
-        (df['Low']  - df['Close'].shift()).abs(),
+        high - low,
+        (high - close.shift()).abs(),
+        (low  - close.shift()).abs(),
     ], axis=1).max(axis=1)
-    indikatoren['atr'] = tr.rolling(14).mean().iloc[-1]
+    atr_serie = tr.rolling(14).mean()
+    indikatoren['atr'] = atr_serie.iloc[-1]
+
+    # Bollinger Bands (20, 2σ)
+    bb_mid   = close.rolling(20).mean()
+    bb_std   = close.rolling(20).std()
+    bb_upper = bb_mid + 2 * bb_std
+    bb_lower = bb_mid - 2 * bb_std
+    bb_range = (bb_upper - bb_lower).iloc[-1]
+    indikatoren['bb_upper']  = round(bb_upper.iloc[-1], 4)
+    indikatoren['bb_lower']  = round(bb_lower.iloc[-1], 4)
+    indikatoren['bb_mid']    = round(bb_mid.iloc[-1],   4)
+    indikatoren['bb_pos']    = round((close.iloc[-1] - bb_lower.iloc[-1]) / bb_range, 3) if bb_range > 0 else 0.5
+    indikatoren['bb_breite'] = round(bb_range / bb_mid.iloc[-1] * 100, 2) if bb_mid.iloc[-1] > 0 else 5.0
+
+    # ADX (14) mit +DI / -DI
+    plus_dm  = high.diff().clip(lower=0)
+    minus_dm = (-low.diff()).clip(lower=0)
+    plus_dm_f  = plus_dm.where(plus_dm  > minus_dm, 0.0)
+    minus_dm_f = minus_dm.where(minus_dm > plus_dm,  0.0)
+    atr14    = atr_serie.replace(0, 1e-9)
+    plus_di  = 100 * plus_dm_f.ewm(com=13,  adjust=False).mean() / atr14
+    minus_di = 100 * minus_dm_f.ewm(com=13, adjust=False).mean() / atr14
+    di_sum   = (plus_di + minus_di).replace(0, 1e-9)
+    dx       = (plus_di - minus_di).abs() / di_sum * 100
+    adx      = dx.ewm(com=13, adjust=False).mean()
+    indikatoren['adx']      = round(adx.iloc[-1],      1)
+    indikatoren['plus_di']  = round(plus_di.iloc[-1],  1)
+    indikatoren['minus_di'] = round(minus_di.iloc[-1], 1)
+
+    # VWAP (täglicher Reset)
+    typical = (high + low + close) / 3
+    try:
+        dates      = pd.Series(df.index.date, index=df.index)
+        cum_tp_vol = (typical * volume).groupby(dates).cumsum()
+        cum_vol    = volume.groupby(dates).cumsum().replace(0, 1)
+        vwap_serie = cum_tp_vol / cum_vol
+    except Exception:
+        cum_tp_vol = (typical * volume).cumsum()
+        cum_vol    = volume.cumsum().replace(0, 1)
+        vwap_serie = cum_tp_vol / cum_vol
+    indikatoren['vwap'] = round(vwap_serie.iloc[-1], 4)
 
     indikatoren['aktuell'] = close.iloc[-1]
     indikatoren['vortag']  = close.iloc[-2] if len(close) > 1 else close.iloc[-1]
-    indikatoren['hoch52w'] = df['High'].rolling(min(252, len(df))).max().iloc[-1]
-    indikatoren['tief52w'] = df['Low'].rolling(min(252, len(df))).min().iloc[-1]
+    indikatoren['hoch52w'] = high.rolling(min(252, len(df))).max().iloc[-1]
+    indikatoren['tief52w'] = low.rolling(min(252, len(df))).min().iloc[-1]
 
     return indikatoren
 
@@ -325,7 +371,7 @@ def berechne_wahrscheinlichkeit(aktuell: float, levels: dict,
         score -= 5
         faktoren.append({'text': 'Unter 200-EMA (langfristig bärisch)', 'wert': '−5', 'farbe': 'danger'})
 
-    # ── 3. RSI-Analyse ────────────────────────────────────────────────────────
+    # ── 3. RSI-Analyse (korrigiert: 45–65 neutral, nicht negativ) ───────────────
     rsi = ind['rsi']
     if rsi < 25:
         score += 20
@@ -335,27 +381,33 @@ def berechne_wahrscheinlichkeit(aktuell: float, levels: dict,
         faktoren.append({'text': f'RSI überverkauft ({rsi:.0f})', 'wert': '+12', 'farbe': 'success'})
     elif rsi < 45:
         score += 4
-        faktoren.append({'text': f'RSI leicht bärisch ({rsi:.0f})', 'wert': '+4', 'farbe': 'secondary'})
-    elif rsi > 75:
+        faktoren.append({'text': f'RSI leicht überverkauft ({rsi:.0f})', 'wert': '+4', 'farbe': 'secondary'})
+    elif rsi <= 65:
+        pass  # Neutralzone 45–65: kein Abzug
+    elif rsi <= 75:
+        score -= 4
+        faktoren.append({'text': f'RSI leicht überkauft ({rsi:.0f})', 'wert': '−4', 'farbe': 'secondary'})
+    else:
         score -= 20
         faktoren.append({'text': f'RSI stark überkauft ({rsi:.0f}) – Rücksetzer wahrscheinlich', 'wert': '−20', 'farbe': 'danger'})
-    elif rsi > 65:
-        score -= 12
-        faktoren.append({'text': f'RSI überkauft ({rsi:.0f})', 'wert': '−12', 'farbe': 'danger'})
-    elif rsi > 55:
-        score -= 4
-        faktoren.append({'text': f'RSI leicht bullisch ({rsi:.0f})', 'wert': '−4', 'farbe': 'secondary'})
 
-    # ── 4. MACD ───────────────────────────────────────────────────────────────
-    hist = ind['macd_hist']
-    macd = ind['macd']
-    sig  = ind['macd_signal']
-    if macd > sig and hist > 0:
+    # ── 4. MACD (echtes Kreuz) ────────────────────────────────────────────────
+    hist      = ind['macd_hist']
+    hist_prev = ind.get('macd_hist_prev', hist)
+    macd      = ind['macd']
+    sig       = ind['macd_signal']
+    if hist > 0 and hist_prev <= 0:
+        score += 12
+        faktoren.append({'text': 'Frisches MACD-Kaufkreuz', 'wert': '+12', 'farbe': 'success'})
+    elif macd > sig and hist > 0:
         score += 8
-        faktoren.append({'text': 'MACD bullisches Kreuz (über Signallinie)', 'wert': '+8', 'farbe': 'success'})
+        faktoren.append({'text': 'MACD bullisches Momentum', 'wert': '+8', 'farbe': 'success'})
+    elif hist < 0 and hist_prev >= 0:
+        score -= 12
+        faktoren.append({'text': 'Frisches MACD-Verkaufskreuz', 'wert': '−12', 'farbe': 'danger'})
     elif macd < sig and hist < 0:
         score -= 8
-        faktoren.append({'text': 'MACD bärisches Kreuz (unter Signallinie)', 'wert': '−8', 'farbe': 'danger'})
+        faktoren.append({'text': 'MACD bärisches Momentum', 'wert': '−8', 'farbe': 'danger'})
 
     # ── 5. Fibonacci-Richtungs-Bonus ─────────────────────────────────────────
     if richtung == 'aufwärts':
@@ -369,6 +421,42 @@ def berechne_wahrscheinlichkeit(aktuell: float, levels: dict,
     vr = ind['volumen_ratio']
     if vr > 1.5:
         faktoren.append({'text': f'Hohes Volumen ({vr:.1f}x Durchschnitt) – bestätigt Bewegung', 'wert': '±0', 'farbe': 'info'})
+
+    # ── 7. VWAP ──────────────────────────────────────────────────────────────
+    vwap = ind.get('vwap', 0)
+    if vwap > 0:
+        if aktuell > vwap * 1.003:
+            score += 8
+            faktoren.append({'text': f'Über VWAP ({vwap:.2f}) – institutionell bullisch', 'wert': '+8', 'farbe': 'success'})
+        elif aktuell < vwap * 0.997:
+            score -= 8
+            faktoren.append({'text': f'Unter VWAP ({vwap:.2f}) – institutionell bärisch', 'wert': '−8', 'farbe': 'danger'})
+
+    # ── 8. ADX – Trend-Stärke ────────────────────────────────────────────────
+    adx      = ind.get('adx', 0)
+    plus_di  = ind.get('plus_di', 0)
+    minus_di = ind.get('minus_di', 0)
+    if adx > 25:
+        if plus_di > minus_di:
+            score += 8
+            faktoren.append({'text': f'ADX {adx:.0f} – starker Aufwärtstrend bestätigt', 'wert': '+8', 'farbe': 'success'})
+        else:
+            score -= 8
+            faktoren.append({'text': f'ADX {adx:.0f} – starker Abwärtstrend bestätigt', 'wert': '−8', 'farbe': 'danger'})
+    elif adx < 15:
+        faktoren.append({'text': f'ADX {adx:.0f} – Range-Markt, Trend-Signale unzuverlässig', 'wert': '±0', 'farbe': 'secondary'})
+
+    # ── 9. Bollinger Bands ────────────────────────────────────────────────────
+    bb_pos    = ind.get('bb_pos', 0.5)
+    bb_breite = ind.get('bb_breite', 5.0)
+    if bb_pos <= 0.1:
+        score += 10
+        faktoren.append({'text': 'Preis am unteren Bollinger Band – überverkaufte Zone', 'wert': '+10', 'farbe': 'success'})
+    elif bb_pos >= 0.9:
+        score -= 10
+        faktoren.append({'text': 'Preis am oberen Bollinger Band – überkaufte Zone', 'wert': '−10', 'farbe': 'danger'})
+    if bb_breite < 2.0:
+        faktoren.append({'text': f'BB-Squeeze ({bb_breite:.1f}%) – starke Bewegung steht bevor', 'wert': '±0', 'farbe': 'warning'})
 
     score = max(5.0, min(95.0, score))
 
@@ -444,6 +532,40 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         row_heights=[0.55, 0.15, 0.15, 0.15],
     )
 
+    # ── Bollinger Bands berechnen ────────────────────────────────────────────
+    bb_mid_s   = close.rolling(20).mean()
+    bb_std_s   = close.rolling(20).std()
+    bb_upper_s = bb_mid_s + 2 * bb_std_s
+    bb_lower_s = bb_mid_s - 2 * bb_std_s
+
+    # ── VWAP berechnen ───────────────────────────────────────────────────────
+    typical = (df['High'] + df['Low'] + close) / 3
+    try:
+        dates      = pd.Series(df.index.date, index=df.index)
+        cum_tp_vol = (typical * df['Volume']).groupby(dates).cumsum()
+        cum_vol    = df['Volume'].groupby(dates).cumsum().replace(0, 1)
+        vwap_s     = cum_tp_vol / cum_vol
+    except Exception:
+        vwap_s = (typical * df['Volume']).cumsum() / df['Volume'].cumsum().replace(0, 1)
+
+    # ── Row 1: Bollinger Bands (unter Candlestick zeichnen) ──────────────────
+    fig.add_trace(go.Scatter(
+        x=df.index, y=bb_upper_s,
+        line=dict(color='rgba(99,102,241,0.5)', width=1),
+        name='BB Oberes Band', showlegend=False,
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=bb_lower_s,
+        line=dict(color='rgba(99,102,241,0.5)', width=1),
+        fill='tonexty', fillcolor='rgba(99,102,241,0.06)',
+        name='BB Unteres Band', showlegend=False,
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=bb_mid_s,
+        line=dict(color='rgba(99,102,241,0.35)', width=0.8, dash='dot'),
+        name='BB Mitte', showlegend=False,
+    ), row=1, col=1)
+
     # ── Row 1: Candlestick ───────────────────────────────────────────────────
     fig.add_trace(go.Candlestick(
         x=df.index,
@@ -454,6 +576,13 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         decreasing_line_color='#ef4444',
         increasing_fillcolor='#22c55e',
         decreasing_fillcolor='#ef4444',
+    ), row=1, col=1)
+
+    # ── VWAP-Linie ───────────────────────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=df.index, y=vwap_s,
+        line=dict(color='#f59e0b', width=1.8, dash='dot'),
+        name='VWAP', showlegend=False,
     ), row=1, col=1)
 
     # Fibonacci-Levels — Label nur zeigen wenn genug Abstand zum letzten Label
@@ -691,20 +820,23 @@ def erkenne_kerzenformation(df: pd.DataFrame):
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
                               richtung: str, hoch: float, tief: float,
                               bullisch_pct: float = 50.0):
-    """
-    Berechnet ein klares LONG/SHORT Daytrading-Signal mit Take-Profit und Stop-Loss.
-    Ziel: Position am selben Tag schließen.
-    """
-    rsi   = ind['rsi']
-    ema20 = ind['ema20']
-    ema50 = ind['ema50']
-    macd  = ind['macd']
-    msig  = ind['macd_signal']
-    atr   = ind['atr']
+    rsi      = ind['rsi']
+    ema20    = ind['ema20']
+    ema50    = ind['ema50']
+    macd     = ind['macd']
+    msig     = ind['macd_signal']
+    mhist    = ind['macd_hist']
+    mhist_p  = ind.get('macd_hist_prev', mhist)
+    atr      = ind['atr']
+    adx      = ind.get('adx', 0)
+    plus_di  = ind.get('plus_di', 0)
+    minus_di = ind.get('minus_di', 0)
+    vwap     = ind.get('vwap', 0)
+    bb_pos   = ind.get('bb_pos', 0.5)
 
-    alle_preise  = sorted(levels.values())
-    supports     = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
-    resistances  = sorted([p for p in alle_preise if p > aktuell * 1.0005])
+    alle_preise = sorted(levels.values())
+    supports    = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
+    resistances = sorted([p for p in alle_preise if p > aktuell * 1.0005])
 
     naechster_support   = supports[0]    if supports    else tief
     naechste_resistance = resistances[0] if resistances else hoch
@@ -712,7 +844,6 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     abstand_sup_pct = (aktuell - naechster_support)   / aktuell * 100
     abstand_res_pct = (naechste_resistance - aktuell) / aktuell * 100
 
-    # ── Score LONG vs SHORT ───────────────────────────────────────────────────
     long_score  = 0
     short_score = 0
     gruende_long  = []
@@ -720,101 +851,112 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
 
     # RSI
     if rsi < 30:
-        long_score += 3
-        gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
+        long_score += 3;  gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
     elif rsi < 45:
-        long_score += 1
-        gruende_long.append(f'RSI leicht überverkauft ({rsi:.0f})')
+        long_score += 1;  gruende_long.append(f'RSI überverkauft ({rsi:.0f})')
     elif rsi > 70:
-        short_score += 3
-        gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
+        short_score += 3; gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
     elif rsi > 55:
-        short_score += 1
-        gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
+        short_score += 1; gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
 
-    # MACD Momentum
-    if macd > msig:
-        long_score += 2
-        gruende_long.append('MACD bullisches Momentum')
+    # MACD (echtes Kreuz)
+    if mhist > 0 and mhist_p <= 0:
+        long_score += 3;  gruende_long.append('Frisches MACD-Kaufkreuz')
+    elif macd > msig:
+        long_score += 2;  gruende_long.append('MACD bullisches Momentum')
+    elif mhist < 0 and mhist_p >= 0:
+        short_score += 3; gruende_short.append('Frisches MACD-Verkaufskreuz')
     else:
-        short_score += 2
-        gruende_short.append('MACD bärisches Momentum')
+        short_score += 2; gruende_short.append('MACD bärisches Momentum')
 
     # EMA-Trend
     if aktuell > ema20 > ema50:
-        long_score += 2
-        gruende_long.append('Aufwärtstrend (Preis > EMA20 > EMA50)')
+        long_score += 2;  gruende_long.append('Aufwärtstrend (Preis > EMA20 > EMA50)')
     elif aktuell < ema20 < ema50:
-        short_score += 2
-        gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
+        short_score += 2; gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
 
     # Fibonacci-Position
     if abstand_sup_pct < abstand_res_pct and abstand_sup_pct < 1.5:
-        long_score += 2
-        gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
+        long_score += 2;  gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
     elif abstand_res_pct < abstand_sup_pct and abstand_res_pct < 1.5:
-        short_score += 2
-        gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
+        short_score += 2; gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
+
+    # VWAP – stärkster Intraday-Filter
+    if vwap > 0:
+        if aktuell > vwap * 1.002:
+            long_score += 3;  gruende_long.append(f'Über VWAP ({vwap:.2f}) – bullische Bias')
+        elif aktuell < vwap * 0.998:
+            short_score += 3; gruende_short.append(f'Unter VWAP ({vwap:.2f}) – bärische Bias')
+
+    # ADX – Trend-Stärke
+    if adx > 20:
+        if plus_di > minus_di:
+            long_score += 2;  gruende_long.append(f'ADX {adx:.0f}: Aufwärtstrend bestätigt')
+        else:
+            short_score += 2; gruende_short.append(f'ADX {adx:.0f}: Abwärtstrend bestätigt')
+
+    # Bollinger Bands
+    if bb_pos <= 0.1:
+        long_score += 2;  gruende_long.append('Am unteren Bollinger Band – Reversal-Zone')
+    elif bb_pos >= 0.9:
+        short_score += 2; gruende_short.append('Am oberen Bollinger Band – Reversal-Zone')
 
     # Swing-Richtung
-    if richtung == 'aufwärts':
-        long_score += 1
-    else:
-        short_score += 1
+    if richtung == 'aufwärts': long_score  += 1
+    else:                      short_score += 1
 
-    # ── Gesamtbild einbeziehen (starkes Gesamtsignal überstimmt) ─────────────
+    # Gesamtbild
     if bullisch_pct >= 65:
-        long_score += 3
-        gruende_long.append(f'Gesamtanalyse bullisch ({bullisch_pct:.0f}%)')
+        long_score += 3;  gruende_long.append(f'Gesamtanalyse bullisch ({bullisch_pct:.0f}%)')
     elif bullisch_pct >= 55:
         long_score += 1
     elif bullisch_pct <= 35:
-        short_score += 3
-        gruende_short.append(f'Gesamtanalyse bärisch ({100 - bullisch_pct:.0f}% bärisch)')
+        short_score += 3; gruende_short.append(f'Gesamtanalyse bärisch ({100-bullisch_pct:.0f}%)')
     elif bullisch_pct <= 45:
         short_score += 1
 
-    # ── Richtung bestimmen ────────────────────────────────────────────────────
     dt_richtung = 'LONG' if long_score >= short_score else 'SHORT'
-
-    total      = long_score + short_score or 1
-    staerke    = round(max(long_score, short_score) / total * 100)
-    gruende    = gruende_long if dt_richtung == 'LONG' else gruende_short
-
-    # Kein klares Signal wenn Scores zu nah beieinander
-    kein_signal = abs(long_score - short_score) <= 1
-
-    # Widerspruch: Daytrading-Richtung gegen Gesamtbild
+    total    = long_score + short_score or 1
+    staerke  = round(max(long_score, short_score) / total * 100)
+    gruende  = gruende_long if dt_richtung == 'LONG' else gruende_short
     widerspruch = (dt_richtung == 'LONG'  and bullisch_pct < 40) or \
                   (dt_richtung == 'SHORT' and bullisch_pct > 60)
 
     # ── Preisziele ────────────────────────────────────────────────────────────
     if dt_richtung == 'LONG':
         take_profit = naechste_resistance
-        stop_loss   = naechster_support - (atr * 0.3)
+        stop_loss   = naechster_support - (atr * 0.5)
         tp_pct      = (take_profit - aktuell) / aktuell * 100
         sl_pct      = (aktuell - stop_loss)   / aktuell * 100
     else:
         take_profit = naechster_support
-        stop_loss   = naechste_resistance + (atr * 0.3)
+        stop_loss   = naechste_resistance + (atr * 0.5)
         tp_pct      = (aktuell - take_profit) / aktuell * 100
         sl_pct      = (stop_loss - aktuell)   / aktuell * 100
 
-    # Stop-Loss mindestens 0.3%, maximal 2% (Intraday)
-    sl_pct = max(0.3, min(2.0, sl_pct))
-    if dt_richtung == 'LONG':
-        stop_loss = aktuell * (1 - sl_pct / 100)
-    else:
-        stop_loss = aktuell * (1 + sl_pct / 100)
+    # Minimaler Stop-Puffer (kein hartes Clipping nach oben)
+    if sl_pct < 0.2:
+        sl_pct = 0.5
+        stop_loss = aktuell * (1 - sl_pct / 100) if dt_richtung == 'LONG' else aktuell * (1 + sl_pct / 100)
 
-    # Take-Profit mindestens 0.5%
-    tp_pct = max(0.5, tp_pct)
-    if dt_richtung == 'LONG':
-        take_profit = max(take_profit, aktuell * 1.005)
-    else:
-        take_profit = min(take_profit, aktuell * 0.995)
-
+    tp_pct = max(0.2, tp_pct)
     rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
+
+    # ── Gates ────────────────────────────────────────────────────────────────
+    kein_signal = abs(long_score - short_score) <= 1
+
+    # R:R-Gate: mindestens 2:1
+    if rr < 2.0:
+        kein_signal = True
+
+    # ADX-Gate: kein Signal bei extremem Range-Markt
+    if adx < 12:
+        kein_signal = True
+
+    # VWAP-Gate: LONG nur über VWAP, SHORT nur unter VWAP
+    if vwap > 0:
+        if dt_richtung == 'LONG'  and aktuell < vwap * 0.995: kein_signal = True
+        if dt_richtung == 'SHORT' and aktuell > vwap * 1.005: kein_signal = True
 
     return {
         'richtung':    dt_richtung,
@@ -853,31 +995,38 @@ SIGNAL_FARBEN = {
 KEY_FIB_LEVELS = {'61,8 %', '50,0 %', '38,2 %', '23,6 %'}
 
 def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
-    score        = 0
+    score         = 0
     begruendungen = []
-    warnungen    = []
-    bedingungen  = []
+    warnungen     = []
+    bedingungen   = []
 
-    alle_preise  = sorted(levels.values())
-    supports     = sorted([p for p in alle_preise if p <= aktuell * 1.005], reverse=True)
-    resistances  = sorted([p for p in alle_preise if p >= aktuell * 0.995])
+    alle_preise = sorted(levels.values())
+    supports    = sorted([p for p in alle_preise if p <= aktuell * 1.005], reverse=True)
+    resistances = sorted([p for p in alle_preise if p >= aktuell * 0.995])
 
-    naechster_support    = supports[0]    if supports    else tief
-    naechste_resistance  = resistances[0] if resistances else hoch
+    naechster_support   = supports[0]    if supports    else tief
+    naechste_resistance = resistances[0] if resistances else hoch
 
-    atr    = ind['atr']
-    rsi    = ind['rsi']
-    ema20  = ind['ema20']
-    ema50  = ind['ema50']
-    ema200 = ind['ema200']
-    macd   = ind['macd']
-    msig   = ind['macd_signal']
-    mhist  = ind['macd_hist']
-    vr     = ind['volumen_ratio']
+    atr      = ind['atr']
+    rsi      = ind['rsi']
+    ema20    = ind['ema20']
+    ema50    = ind['ema50']
+    ema200   = ind['ema200']
+    macd     = ind['macd']
+    msig     = ind['macd_signal']
+    mhist    = ind['macd_hist']
+    mhist_p  = ind.get('macd_hist_prev', mhist)
+    vr       = ind['volumen_ratio']
+    adx      = ind.get('adx', 0)
+    plus_di  = ind.get('plus_di', 0)
+    minus_di = ind.get('minus_di', 0)
+    vwap     = ind.get('vwap', 0)
+    bb_pos   = ind.get('bb_pos', 0.5)
+    bb_breite = ind.get('bb_breite', 5.0)
 
     # ── 1. Fibonacci-Support-Nähe ─────────────────────────────────────────────
-    abstand_support_pct    = (aktuell - naechster_support)   / aktuell * 100
-    abstand_resist_pct     = (naechste_resistance - aktuell) / aktuell * 100
+    abstand_support_pct = (aktuell - naechster_support)   / aktuell * 100
+    abstand_resist_pct  = (naechste_resistance - aktuell) / aktuell * 100
 
     level_name = next((n for n, p in levels.items()
                        if abs(p - naechster_support) / max(naechster_support, 1) < 0.003), '')
@@ -903,7 +1052,7 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         score -= 10
         warnungen.append(f'Widerstand bei {naechste_resistance:.2f} in Reichweite')
 
-    # ── 2. Trend (EMA-Struktur) ───────────────────────────────────────────────
+    # ── 2. Trend (EMA) ────────────────────────────────────────────────────────
     if aktuell > ema200:
         score += 15
         begruendungen.append(f'Über EMA200 ({ema200:.2f}) – langfristiger Aufwärtstrend')
@@ -920,10 +1069,10 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
 
     if ema20 > ema50 > ema200:
         score += 8
-        begruendungen.append('EMA-Fächer bullisch ausgerichtet (EMA20 > EMA50 > EMA200)')
+        begruendungen.append('EMA-Fächer bullisch (EMA20 > EMA50 > EMA200)')
     elif ema20 < ema50 < ema200:
         score -= 8
-        warnungen.append('EMA-Fächer bärisch ausgerichtet (EMA20 < EMA50 < EMA200)')
+        warnungen.append('EMA-Fächer bärisch (EMA20 < EMA50 < EMA200)')
 
     # ── 3. RSI ────────────────────────────────────────────────────────────────
     if rsi < 25:
@@ -941,23 +1090,24 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         score -= 12
         warnungen.append(f'RSI überkauft ({rsi:.0f})')
 
-    # ── 4. MACD ───────────────────────────────────────────────────────────────
-    if macd > msig and mhist > 0:
-        score += 12
+    # ── 4. MACD (echtes Kreuz) ────────────────────────────────────────────────
+    if mhist > 0 and mhist_p <= 0:
+        score += 15
+        begruendungen.append('Frisches MACD-Kaufkreuz – Momentum dreht bullisch')
+    elif macd > msig and mhist > 0:
+        score += 10
         begruendungen.append('MACD über Signallinie – bullisches Momentum')
+    elif mhist < 0 and mhist_p >= 0:
+        score -= 15
+        warnungen.append('Frisches MACD-Verkaufskreuz – Momentum dreht bärisch')
     elif macd < msig and mhist < 0:
         score -= 10
         warnungen.append('MACD unter Signallinie – bärisches Momentum')
 
-    # MACD dreht gerade bullisch (Kreuz in letzten 3 Perioden)
-    if abs(mhist) < atr * 0.05 and macd > msig:
-        score += 8
-        begruendungen.append('Frisches MACD-Kaufkreuz erkannt')
-
     # ── 5. Volumen ────────────────────────────────────────────────────────────
     if vr >= 2.0:
         score += 12
-        begruendungen.append(f'Sehr hohes Volumen ({vr:.1f}x Durchschnitt) – starke Bestätigung')
+        begruendungen.append(f'Sehr hohes Volumen ({vr:.1f}x) – starke Bestätigung')
     elif vr >= 1.4:
         score += 6
         begruendungen.append(f'Überdurchschnittliches Volumen ({vr:.1f}x)')
@@ -966,15 +1116,15 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
     divergenz = erkenne_rsi_divergenz(df)
     if divergenz == 'bullisch':
         score += 18
-        begruendungen.append('Bullische RSI-Divergenz: Preis tieferes Tief, RSI höheres Tief → Trendwende-Signal')
+        begruendungen.append('Bullische RSI-Divergenz – Trendwende-Signal')
     elif divergenz == 'bärisch':
         score -= 16
-        warnungen.append('Bärische RSI-Divergenz: Preis höheres Hoch, RSI tieferes Hoch → Schwäche-Signal')
+        warnungen.append('Bärische RSI-Divergenz – Schwäche-Signal')
 
     # ── 7. Kerzenformation ────────────────────────────────────────────────────
     formation = erkenne_kerzenformation(df)
     formation_texte = {
-        'hammer':               ('Hammer-Kerze erkannt – bullisches Umkehrsignal', +12),
+        'hammer':               ('Hammer-Kerze – bullisches Umkehrsignal', +12),
         'bullisches_engulfing': ('Bullisches Engulfing – starkes Kaufsignal', +15),
         'baerisches_engulfing': ('Bärisches Engulfing – Verkaufsdruck', -14),
         'morgenstern':          ('Morgenstern-Formation – bullische Trendwende', +18),
@@ -983,19 +1133,53 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
     if formation and formation in formation_texte:
         text, punkte = formation_texte[formation]
         score += punkte
-        if punkte > 0:
-            begruendungen.append(text)
-        elif punkte < 0:
-            warnungen.append(text)
-        else:
-            bedingungen.append(text)
+        if punkte > 0:   begruendungen.append(text)
+        elif punkte < 0: warnungen.append(text)
+        else:            bedingungen.append(text)
 
     # ── 8. Swing-Richtung ─────────────────────────────────────────────────────
     if richtung == 'aufwärts':
         score += 5
     else:
         score -= 5
-        warnungen.append('Primärer Swing zeigt Abwärts – erhöhtes Rückschlagrisiko')
+        warnungen.append('Primärer Swing zeigt abwärts – erhöhtes Rückschlagrisiko')
+
+    # ── 9. VWAP ──────────────────────────────────────────────────────────────
+    if vwap > 0:
+        if aktuell > vwap * 1.003:
+            score += 10
+            begruendungen.append(f'Über VWAP ({vwap:.2f}) – institutionell bullisch')
+        elif aktuell < vwap * 0.997:
+            score -= 10
+            warnungen.append(f'Unter VWAP ({vwap:.2f}) – institutionell bärisch')
+
+    # ── 10. ADX ──────────────────────────────────────────────────────────────
+    if adx > 25:
+        if plus_di > minus_di:
+            score += 10
+            begruendungen.append(f'ADX {adx:.0f} + DI+ > DI− – starker Aufwärtstrend')
+        else:
+            score -= 10
+            warnungen.append(f'ADX {adx:.0f} + DI− > DI+ – starker Abwärtstrend')
+    elif adx < 15:
+        score -= 8
+        warnungen.append(f'ADX {adx:.0f} – Range-Markt, Trend-Signale unzuverlässig')
+
+    # ── 11. Bollinger Bands ───────────────────────────────────────────────────
+    if bb_pos <= 0.05:
+        score += 15
+        begruendungen.append('Preis am unteren Bollinger Band – starke Überverkauft-Zone')
+    elif bb_pos <= 0.15:
+        score += 8
+        begruendungen.append('Preis nahe unterem Bollinger Band')
+    elif bb_pos >= 0.95:
+        score -= 15
+        warnungen.append('Preis am oberen Bollinger Band – starke Überkauft-Zone')
+    elif bb_pos >= 0.85:
+        score -= 8
+        warnungen.append('Preis nahe oberem Bollinger Band')
+    if bb_breite < 2.0:
+        bedingungen.append(f'BB-Squeeze aktiv ({bb_breite:.1f}%) – starke Bewegung erwartet, Richtung offen')
 
     # ── Signal-Typ ────────────────────────────────────────────────────────────
     if   score >= 60:  typ = 'KAUFEN'
@@ -1017,46 +1201,61 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         einstieg = aktuell
         bedingungen.insert(0, 'Kein klares Kaufsignal – besser abwarten')
 
-    # ── Stop-Loss ─────────────────────────────────────────────────────────────
-    # 1× ATR unter dem nächsten Support – dynamisch an Volatilität angepasst
+    # ── Stop-Loss (kein hartes Clipping – zu weiter Stop degradiert Signal) ───
     stop_loss     = naechster_support - (atr * 1.2)
     stop_loss_pct = (einstieg - stop_loss) / einstieg * 100 if einstieg > 0 else 5.0
 
-    # Mindest-SL 1.5%, Maximum 12%
-    if stop_loss_pct < 1.5:
-        stop_loss     = einstieg * 0.985
-        stop_loss_pct = 1.5
-    elif stop_loss_pct > 12:
+    if stop_loss_pct < 0.5:
+        stop_loss     = einstieg * 0.995
+        stop_loss_pct = 0.5
+    elif stop_loss_pct > 15:
+        if typ == 'KAUFEN':
+            typ = 'BEOBACHTEN'
+        warnungen.append(f'Stop-Loss zu weit ({stop_loss_pct:.1f}%) – Position zu riskant')
         stop_loss     = einstieg * 0.88
         stop_loss_pct = 12.0
 
     # ── Kursziele ─────────────────────────────────────────────────────────────
     ziele_preise = sorted([p for p in alle_preise if p > einstieg * 1.005])
-
-    # Mindestens 3 Ziele sicherstellen (notfalls mit ATR-Vielfachen auffüllen)
     while len(ziele_preise) < 3:
         letztes = ziele_preise[-1] if ziele_preise else einstieg
         ziele_preise.append(round(letztes + atr * 3, 2))
 
     ziel_1, ziel_2, ziel_3 = ziele_preise[0], ziele_preise[1], ziele_preise[2]
 
-    def pct(ziel): return round((ziel - einstieg) / einstieg * 100, 1)
-    def rr(ziel):  return round(pct(ziel) / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+    def pct(ziel):    return round((ziel - einstieg) / einstieg * 100, 1)
+    def rr_calc(z):   return round(pct(z) / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
 
     z1_pct, z2_pct, z3_pct = pct(ziel_1), pct(ziel_2), pct(ziel_3)
-    rr1,    rr2,    rr3    = rr(ziel_1),  rr(ziel_2),  rr(ziel_3)
+    rr1,    rr2,    rr3    = rr_calc(ziel_1), rr_calc(ziel_2), rr_calc(ziel_3)
 
-    # ── Eintrittsbedingungen / Handlungsempfehlung ────────────────────────────
+    # ── Gate: R:R-Minimum 2:1 ────────────────────────────────────────────────
+    if rr1 < 2.0 and typ == 'KAUFEN':
+        typ = 'BEOBACHTEN'
+        warnungen.append(f'R:R zu gering ({rr1}:1) – mindestens 2:1 für Kaufsignal erforderlich')
+
+    # ── Gate: Hard-Gates für KAUFEN ──────────────────────────────────────────
     if typ == 'KAUFEN':
-        bedingungen.append(f'Stop-Loss zwingend bei {stop_loss:.2f} setzen (−{stop_loss_pct:.1f}%)')
-        bedingungen.append(f'Empfehlung: Bei Ziel 1 ({ziel_1:.2f}) 40% verkaufen, Rest laufen lassen')
+        gates = 0
+        if vwap == 0 or aktuell >= vwap * 0.997:  gates += 1  # VWAP ok
+        if adx >= 15 or abstand_support_pct <= 1.5: gates += 1  # kein extremer Range ODER direkt am Level
+        if rsi < 72:                                gates += 1  # nicht extrem überkauft
+        if aktuell > ema200:                        gates += 1  # Langfristtrend positiv
+        if gates < 3:
+            typ = 'BEOBACHTEN'
+            warnungen.append('Zu viele widersprüchliche Faktoren – kein klares Kaufsignal')
+
+    # ── Empfehlungen ──────────────────────────────────────────────────────────
+    if typ == 'KAUFEN':
+        bedingungen.append(f'Stop-Loss bei {stop_loss:.2f} setzen (−{stop_loss_pct:.1f}%)')
+        bedingungen.append(f'Bei Ziel 1 ({ziel_1:.2f}) 40% sichern, Rest laufen lassen')
         if rr2 >= 2:
-            bedingungen.append(f'Chancen/Risiko bei Ziel 2: {rr2}:1 – sehr attraktiv')
+            bedingungen.append(f'R:R bei Ziel 2: {rr2}:1 – sehr attraktiv')
     elif typ == 'BEOBACHTEN':
-        bedingungen.append('Warte auf weitere Bestätigung (grüne Tageskerze, RSI-Anstieg)')
+        bedingungen.append('Auf Bestätigung warten (grüne Kerze, RSI-Anstieg, Volumen)')
         bedingungen.append('Keinen Kauf ohne Bestätigung – zu früh einsteigen kostet Performance')
     elif typ in ('VORSICHT', 'MEIDEN'):
-        bedingungen.append('Kein Kauf empfehlenswert – besser auf bessere Einstiegsgelegenheit warten')
+        bedingungen.append('Kein Kauf empfehlenswert – auf bessere Gelegenheit warten')
         bedingungen.append('Bestehende Positionen mit Stop-Loss absichern')
 
     return {
@@ -1167,16 +1366,25 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
             'levels':      alle_levels,
             'zonen':       zonen,
             'indikatoren': {
-                'rsi':         ind['rsi'],
-                'ema20':       round(ind['ema20'],  2),
-                'ema50':       round(ind['ema50'],  2),
-                'ema200':      round(ind['ema200'], 2),
-                'macd':        round(ind['macd'],   4),
-                'macd_signal': round(ind['macd_signal'], 4),
-                'atr':         round(ind['atr'],    2),
-                'hoch52w':     ind['hoch52w'],
-                'tief52w':     ind['tief52w'],
+                'rsi':           ind['rsi'],
+                'ema20':         round(ind['ema20'],  2),
+                'ema50':         round(ind['ema50'],  2),
+                'ema200':        round(ind['ema200'], 2),
+                'macd':          round(ind['macd'],   4),
+                'macd_signal':   round(ind['macd_signal'], 4),
+                'atr':           round(ind['atr'],    2),
+                'hoch52w':       ind['hoch52w'],
+                'tief52w':       ind['tief52w'],
                 'volumen_ratio': round(ind['volumen_ratio'], 2),
+                'adx':           ind.get('adx', 0),
+                'plus_di':       ind.get('plus_di', 0),
+                'minus_di':      ind.get('minus_di', 0),
+                'vwap':          ind.get('vwap', 0),
+                'bb_upper':      ind.get('bb_upper', 0),
+                'bb_lower':      ind.get('bb_lower', 0),
+                'bb_mid':        ind.get('bb_mid', 0),
+                'bb_pos':        round(ind.get('bb_pos', 0.5), 3),
+                'bb_breite':     ind.get('bb_breite', 0),
             },
             'chart_json':  chart_json,
             'signal':      signal,
