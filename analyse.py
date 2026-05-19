@@ -944,25 +944,32 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     gruende_long  = []
     gruende_short = []
 
+    # Gewichtungen: Intraday fokussiert auf VWAP/RSI/MACD, Swing auf Fibonacci
+    w_rsi   = 4 if intraday else 3
+    w_macd  = 4 if intraday else 3
+    w_vwap  = 5 if intraday else 3
+    w_stoch = 3 if intraday else 2
+    w_fib   = 0 if intraday else 2  # Fib-Level auf Intraday nicht aussagekräftig
+
     # RSI
     if rsi < 30:
-        long_score += 3;  gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
+        long_score += w_rsi;      gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
     elif rsi < 45:
-        long_score += 1;  gruende_long.append(f'RSI überverkauft ({rsi:.0f})')
+        long_score += w_rsi // 2; gruende_long.append(f'RSI überverkauft ({rsi:.0f})')
     elif rsi > 70:
-        short_score += 3; gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
+        short_score += w_rsi;     gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
     elif rsi > 55:
-        short_score += 1; gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
+        short_score += w_rsi // 2; gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
 
     # MACD (echtes Kreuz)
     if mhist > 0 and mhist_p <= 0:
-        long_score += 3;  gruende_long.append('Frisches MACD-Kaufkreuz')
+        long_score += w_macd;         gruende_long.append('Frisches MACD-Kaufkreuz')
     elif macd > msig:
-        long_score += 2;  gruende_long.append('MACD bullisches Momentum')
+        long_score += w_macd - 1;     gruende_long.append('MACD bullisches Momentum')
     elif mhist < 0 and mhist_p >= 0:
-        short_score += 3; gruende_short.append('Frisches MACD-Verkaufskreuz')
+        short_score += w_macd;        gruende_short.append('Frisches MACD-Verkaufskreuz')
     else:
-        short_score += 2; gruende_short.append('MACD bärisches Momentum')
+        short_score += w_macd - 1;    gruende_short.append('MACD bärisches Momentum')
 
     # EMA-Trend
     if aktuell > ema20 > ema50:
@@ -970,18 +977,19 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     elif aktuell < ema20 < ema50:
         short_score += 2; gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
 
-    # Fibonacci-Position
-    if abstand_sup_pct < abstand_res_pct and abstand_sup_pct < 1.5:
-        long_score += 2;  gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
-    elif abstand_res_pct < abstand_sup_pct and abstand_res_pct < 1.5:
-        short_score += 2; gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
+    # Fibonacci-Position (nur für Swing-Charts, nicht Intraday)
+    if w_fib > 0:
+        if abstand_sup_pct < abstand_res_pct and abstand_sup_pct < 1.5:
+            long_score += w_fib;  gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
+        elif abstand_res_pct < abstand_sup_pct and abstand_res_pct < 1.5:
+            short_score += w_fib; gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
 
-    # VWAP – stärkster Intraday-Filter
+    # VWAP – dominanter Intraday-Indikator
     if vwap > 0:
         if aktuell > vwap * 1.002:
-            long_score += 3;  gruende_long.append(f'Über VWAP ({vwap:.2f}) – bullische Bias')
+            long_score += w_vwap;  gruende_long.append(f'Über VWAP ({vwap:.2f}) – bullische Bias')
         elif aktuell < vwap * 0.998:
-            short_score += 3; gruende_short.append(f'Unter VWAP ({vwap:.2f}) – bärische Bias')
+            short_score += w_vwap; gruende_short.append(f'Unter VWAP ({vwap:.2f}) – bärische Bias')
 
     # ADX – Trend-Stärke
     if adx > 20:
@@ -1000,13 +1008,13 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     sk   = ind.get('stoch_k', 50)
     sk_p = ind.get('stoch_k_prev', sk)
     if sk < 20 and sk > sk_p:
-        long_score += 2;  gruende_long.append(f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f})')
+        long_score += w_stoch;      gruende_long.append(f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f})')
     elif sk < 20:
-        long_score += 1;  gruende_long.append(f'Stochastic überverkauft ({sk:.0f})')
+        long_score += w_stoch - 1;  gruende_long.append(f'Stochastic überverkauft ({sk:.0f})')
     elif sk > 80 and sk < sk_p:
-        short_score += 2; gruende_short.append(f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f})')
+        short_score += w_stoch;     gruende_short.append(f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f})')
     elif sk > 80:
-        short_score += 1; gruende_short.append(f'Stochastic überkauft ({sk:.0f})')
+        short_score += w_stoch - 1; gruende_short.append(f'Stochastic überkauft ({sk:.0f})')
 
     # Swing-Richtung
     if richtung == 'aufwärts': long_score  += 1
