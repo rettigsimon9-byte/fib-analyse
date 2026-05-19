@@ -203,7 +203,8 @@ def berechne_fib_levels(hoch: float, tief: float, richtung: str):
 
 # ── Technische Indikatoren ────────────────────────────────────────────────────
 
-def berechne_indikatoren(df: pd.DataFrame):
+def berechne_indikatoren(df: pd.DataFrame, intraday: bool = True,
+                          ema200_override: float = None):
     close  = df['Close']
     high   = df['High']
     low    = df['Low']
@@ -214,6 +215,9 @@ def berechne_indikatoren(df: pd.DataFrame):
     indikatoren['ema20']  = close.ewm(span=20,  adjust=False).mean().iloc[-1]
     indikatoren['ema50']  = close.ewm(span=50,  adjust=False).mean().iloc[-1]
     indikatoren['ema200'] = close.ewm(span=200, adjust=False).mean().iloc[-1]
+    # Für Intraday: tagesbasierter EMA200 überschreibt Intraday-EMA200
+    if ema200_override is not None:
+        indikatoren['ema200'] = ema200_override
 
     # RSI (14)
     delta    = close.diff()
@@ -252,6 +256,16 @@ def berechne_indikatoren(df: pd.DataFrame):
     atr_serie = tr.rolling(14).mean()
     indikatoren['atr'] = atr_serie.iloc[-1]
 
+    # Stochastic Slow (14, 3, 3)
+    stoch_h   = high.rolling(14).max()
+    stoch_l   = low.rolling(14).min()
+    stoch_raw = 100 * (close - stoch_l) / (stoch_h - stoch_l).replace(0, 1e-9)
+    stoch_k   = stoch_raw.rolling(3).mean()   # geglättetes %K
+    stoch_d   = stoch_k.rolling(3).mean()     # %D (Signallinie)
+    indikatoren['stoch_k']      = round(stoch_k.iloc[-1],  1)
+    indikatoren['stoch_d']      = round(stoch_d.iloc[-1],  1)
+    indikatoren['stoch_k_prev'] = round(stoch_k.iloc[-2] if len(stoch_k) > 1 else stoch_k.iloc[-1], 1)
+
     # Bollinger Bands (20, 2σ)
     bb_mid   = close.rolling(20).mean()
     bb_std   = close.rolling(20).std()
@@ -279,18 +293,21 @@ def berechne_indikatoren(df: pd.DataFrame):
     indikatoren['plus_di']  = round(plus_di.iloc[-1],  1)
     indikatoren['minus_di'] = round(minus_di.iloc[-1], 1)
 
-    # VWAP (täglicher Reset)
-    typical = (high + low + close) / 3
-    try:
-        dates      = pd.Series(df.index.date, index=df.index)
-        cum_tp_vol = (typical * volume).groupby(dates).cumsum()
-        cum_vol    = volume.groupby(dates).cumsum().replace(0, 1)
-        vwap_serie = cum_tp_vol / cum_vol
-    except Exception:
-        cum_tp_vol = (typical * volume).cumsum()
-        cum_vol    = volume.cumsum().replace(0, 1)
-        vwap_serie = cum_tp_vol / cum_vol
-    indikatoren['vwap'] = round(vwap_serie.iloc[-1], 4)
+    # VWAP (täglicher Reset) – nur für Intraday-Charts sinnvoll
+    if intraday:
+        typical = (high + low + close) / 3
+        try:
+            dates      = pd.Series(df.index.date, index=df.index)
+            cum_tp_vol = (typical * volume).groupby(dates).cumsum()
+            cum_vol    = volume.groupby(dates).cumsum().replace(0, 1)
+            vwap_serie = cum_tp_vol / cum_vol
+        except Exception:
+            cum_tp_vol = (typical * volume).cumsum()
+            cum_vol    = volume.cumsum().replace(0, 1)
+            vwap_serie = cum_tp_vol / cum_vol
+        indikatoren['vwap'] = round(vwap_serie.iloc[-1], 4)
+    else:
+        indikatoren['vwap'] = 0  # VWAP auf Daily/Weekly-Bars irreführend
 
     indikatoren['aktuell'] = close.iloc[-1]
     indikatoren['vortag']  = close.iloc[-2] if len(close) > 1 else close.iloc[-1]
@@ -458,6 +475,41 @@ def berechne_wahrscheinlichkeit(aktuell: float, levels: dict,
     if bb_breite < 2.0:
         faktoren.append({'text': f'BB-Squeeze ({bb_breite:.1f}%) – starke Bewegung steht bevor', 'wert': '±0', 'farbe': 'warning'})
 
+    # ── 10. 52-Wochen-Hoch/Tief ──────────────────────────────────────────────
+    h52 = ind.get('hoch52w', 0)
+    t52 = ind.get('tief52w', 0)
+    if h52 > 0 and aktuell > 0:
+        abst_h52 = (h52 - aktuell) / aktuell * 100
+        if aktuell >= h52 * 0.999:
+            score += 8
+            faktoren.append({'text': f'Neues 52-Wochen-Hoch ({aktuell:.2f}) – bullischer Ausbruch', 'wert': '+8', 'farbe': 'success'})
+        elif abst_h52 < 2.0:
+            score -= 8
+            faktoren.append({'text': f'Nahe 52-Wochen-Hoch ({h52:.2f}) – starker Widerstand', 'wert': '−8', 'farbe': 'danger'})
+    if t52 > 0 and aktuell > 0:
+        abst_t52 = (aktuell - t52) / aktuell * 100
+        if abst_t52 < 3.0:
+            score += 8
+            faktoren.append({'text': f'Nahe 52-Wochen-Tief ({t52:.2f}) – potentieller Boden', 'wert': '+8', 'farbe': 'success'})
+
+    # ── 11. Stochastic ───────────────────────────────────────────────────────
+    sk   = ind.get('stoch_k', 50)
+    sk_p = ind.get('stoch_k_prev', sk)
+    if sk < 20:
+        if sk > sk_p:
+            score += 10
+            faktoren.append({'text': f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f})', 'wert': '+10', 'farbe': 'success'})
+        else:
+            score += 5
+            faktoren.append({'text': f'Stochastic überverkauft ({sk:.0f})', 'wert': '+5', 'farbe': 'secondary'})
+    elif sk > 80:
+        if sk < sk_p:
+            score -= 10
+            faktoren.append({'text': f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f})', 'wert': '−10', 'farbe': 'danger'})
+        else:
+            score -= 5
+            faktoren.append({'text': f'Stochastic überkauft ({sk:.0f})', 'wert': '−5', 'farbe': 'secondary'})
+
     score = max(5.0, min(95.0, score))
 
     return round(score, 1), faktoren, naechster_support, naechste_resistance
@@ -524,12 +576,19 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
     signal_line = macd_line.ewm(span=9, adjust=False).mean()
     histogram   = macd_line - signal_line
 
+    # ── Stochastic-Serie für Chart ────────────────────────────────────────────
+    stoch_h_c   = df['High'].rolling(14).max()
+    stoch_l_c   = df['Low'].rolling(14).min()
+    stoch_raw_c = 100 * (close - stoch_l_c) / (stoch_h_c - stoch_l_c).replace(0, 1e-9)
+    stoch_k_c   = stoch_raw_c.rolling(3).mean()
+    stoch_d_c   = stoch_k_c.rolling(3).mean()
+
     # ── Subplots anlegen ─────────────────────────────────────────────────────
     fig = make_subplots(
-        rows=4, cols=1,
+        rows=5, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.02,
-        row_heights=[0.55, 0.15, 0.15, 0.15],
+        row_heights=[0.48, 0.13, 0.13, 0.13, 0.13],
     )
 
     # ── Bollinger Bands berechnen ────────────────────────────────────────────
@@ -685,6 +744,28 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
     fig.add_hline(y=0, row=4, col=1,
                   line=dict(color='#475569', width=0.5))
 
+    # ── Row 5: Stochastic ────────────────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=df.index, y=stoch_k_c,
+        line=dict(color='#f59e0b', width=1.3),
+        name='Stoch %K', showlegend=False,
+    ), row=5, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=stoch_d_c,
+        line=dict(color='#94a3b8', width=1.0, dash='dot'),
+        name='Stoch %D', showlegend=False,
+    ), row=5, col=1)
+    fig.add_hline(y=80, row=5, col=1,
+                  line=dict(color='#ef4444', width=0.8, dash='dot'),
+                  annotation_text='  80', annotation_position='right',
+                  annotation_font=dict(size=8, color='#ef4444'))
+    fig.add_hline(y=20, row=5, col=1,
+                  line=dict(color='#22c55e', width=0.8, dash='dot'),
+                  annotation_text='  20', annotation_position='right',
+                  annotation_font=dict(size=8, color='#22c55e'))
+    fig.add_hline(y=50, row=5, col=1,
+                  line=dict(color='#475569', width=0.5, dash='dot'))
+
     # ── Layout ───────────────────────────────────────────────────────────────
     rangebreaks = (
         [dict(bounds=['sat', 'mon']), dict(bounds=[20, 4], pattern='hour')]
@@ -706,6 +787,7 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         xaxis2=dict(**axis_style),
         xaxis3=dict(**axis_style),
         xaxis4=dict(**axis_style),
+        xaxis5=dict(**axis_style),
         yaxis =dict(gridcolor='#1e293b', showgrid=True, side='right'),
         yaxis2=dict(gridcolor='#1e293b', showgrid=True, side='right',
                     title=dict(text='Vol', font=dict(size=9, color='#64748b'))),
@@ -714,6 +796,9 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                     title=dict(text='RSI', font=dict(size=9, color='#a78bfa'))),
         yaxis4=dict(gridcolor='#1e293b', showgrid=True, side='right',
                     title=dict(text='MACD', font=dict(size=9, color='#3b82f6'))),
+        yaxis5=dict(gridcolor='#1e293b', showgrid=True, side='right',
+                    range=[0, 100],
+                    title=dict(text='Stoch', font=dict(size=9, color='#f59e0b'))),
     )
 
     return fig.to_json()
@@ -901,6 +986,18 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     elif bb_pos >= 0.9:
         short_score += 2; gruende_short.append('Am oberen Bollinger Band – Reversal-Zone')
 
+    # Stochastic
+    sk   = ind.get('stoch_k', 50)
+    sk_p = ind.get('stoch_k_prev', sk)
+    if sk < 20 and sk > sk_p:
+        long_score += 2;  gruende_long.append(f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f})')
+    elif sk < 20:
+        long_score += 1;  gruende_long.append(f'Stochastic überverkauft ({sk:.0f})')
+    elif sk > 80 and sk < sk_p:
+        short_score += 2; gruende_short.append(f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f})')
+    elif sk > 80:
+        short_score += 1; gruende_short.append(f'Stochastic überkauft ({sk:.0f})')
+
     # Swing-Richtung
     if richtung == 'aufwärts': long_score  += 1
     else:                      short_score += 1
@@ -982,6 +1079,7 @@ SIGNAL_TEXTE = {
     'WARTEN':      '⚪ ABWARTEN',
     'VORSICHT':    '🟠 VORSICHT',
     'MEIDEN':      '🔴 MEIDEN',
+    'VERKAUFEN':   '🔻 VERKAUFSSIGNAL',
 }
 
 SIGNAL_FARBEN = {
@@ -990,6 +1088,7 @@ SIGNAL_FARBEN = {
     'WARTEN':     'secondary',
     'VORSICHT':   'orange',
     'MEIDEN':     'danger',
+    'VERKAUFEN':  'danger',
 }
 
 KEY_FIB_LEVELS = {'61,8 %', '50,0 %', '38,2 %', '23,6 %'}
@@ -1181,82 +1280,171 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
     if bb_breite < 2.0:
         bedingungen.append(f'BB-Squeeze aktiv ({bb_breite:.1f}%) – starke Bewegung erwartet, Richtung offen')
 
+    # ── 12. 52-Wochen-Hoch/Tief ──────────────────────────────────────────────
+    h52 = ind.get('hoch52w', 0)
+    t52 = ind.get('tief52w', 0)
+    if h52 > 0 and aktuell > 0:
+        abst_h52 = (h52 - aktuell) / aktuell * 100
+        if aktuell >= h52 * 0.999:
+            score += 10
+            begruendungen.append(f'Ausbruch über 52-Wochen-Hoch ({h52:.2f}) – starkes Momentum-Signal')
+        elif abst_h52 < 2.0:
+            score -= 15
+            warnungen.append(f'Preis nahe 52-Wochen-Hoch ({h52:.2f}) – kritische Widerstandszone')
+        elif abst_h52 < 5.0:
+            score -= 8
+            warnungen.append(f'52-Wochen-Hoch bei {h52:.2f} in Sichtweite')
+    if t52 > 0 and aktuell > 0:
+        abst_t52 = (aktuell - t52) / aktuell * 100
+        if abst_t52 < 3.0:
+            score += 12
+            begruendungen.append(f'Preis nahe 52-Wochen-Tief ({t52:.2f}) – starker historischer Boden')
+
+    # ── 13. Stochastic ───────────────────────────────────────────────────────
+    sk   = ind.get('stoch_k', 50)
+    sk_p = ind.get('stoch_k_prev', sk)
+    if sk < 20:
+        if sk > sk_p:
+            score += 12
+            begruendungen.append(f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f}) – Kaufsignal')
+        else:
+            score += 6
+    elif sk > 80:
+        if sk < sk_p:
+            score -= 12
+            warnungen.append(f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f}) – Verkaufssignal')
+        else:
+            score -= 6
+            warnungen.append(f'Stochastic überkauft ({sk:.0f})')
+
     # ── Signal-Typ ────────────────────────────────────────────────────────────
     if   score >= 60:  typ = 'KAUFEN'
     elif score >= 35:  typ = 'BEOBACHTEN'
     elif score >= 10:  typ = 'WARTEN'
     elif score >= -10: typ = 'VORSICHT'
-    else:              typ = 'MEIDEN'
+    elif score >= -45: typ = 'MEIDEN'
+    else:              typ = 'VERKAUFEN'
 
-    staerke = max(5, min(95, int(score * 0.9 + 50)))
-
-    # ── Einstiegskurs ─────────────────────────────────────────────────────────
-    if abstand_support_pct <= 2.5 and score >= 35:
-        einstieg = aktuell
-        bedingungen.insert(0, 'Einstieg jetzt zum aktuellen Kurs möglich')
-    elif score >= 35:
-        einstieg = naechster_support * 1.005
-        bedingungen.insert(0, f'Auf Rücksetzer zum Support {naechster_support:.2f} warten, dann einsteigen')
+    ist_short = (typ == 'VERKAUFEN')
+    if ist_short:
+        staerke = max(5, min(95, int(-score * 0.9 + 50)))
     else:
-        einstieg = aktuell
-        bedingungen.insert(0, 'Kein klares Kaufsignal – besser abwarten')
+        staerke = max(5, min(95, int(score * 0.9 + 50)))
 
-    # ── Stop-Loss (kein hartes Clipping – zu weiter Stop degradiert Signal) ───
-    stop_loss     = naechster_support - (atr * 1.2)
-    stop_loss_pct = (einstieg - stop_loss) / einstieg * 100 if einstieg > 0 else 5.0
+    if not ist_short:
+        # ── LONG: Einstieg ────────────────────────────────────────────────────
+        if abstand_support_pct <= 2.5 and score >= 35:
+            einstieg = aktuell
+            bedingungen.insert(0, 'Einstieg jetzt zum aktuellen Kurs möglich')
+        elif score >= 35:
+            einstieg = naechster_support * 1.005
+            bedingungen.insert(0, f'Auf Rücksetzer zum Support {naechster_support:.2f} warten, dann einsteigen')
+        else:
+            einstieg = aktuell
+            bedingungen.insert(0, 'Kein klares Kaufsignal – besser abwarten')
 
-    if stop_loss_pct < 0.5:
-        stop_loss     = einstieg * 0.995
-        stop_loss_pct = 0.5
-    elif stop_loss_pct > 15:
+        # ── LONG: Stop-Loss ───────────────────────────────────────────────────
+        stop_loss     = naechster_support - (atr * 1.2)
+        stop_loss_pct = (einstieg - stop_loss) / einstieg * 100 if einstieg > 0 else 5.0
+        if stop_loss_pct < 0.5:
+            stop_loss     = einstieg * 0.995
+            stop_loss_pct = 0.5
+        elif stop_loss_pct > 15:
+            if typ == 'KAUFEN':
+                typ = 'BEOBACHTEN'
+            warnungen.append(f'Stop-Loss zu weit ({stop_loss_pct:.1f}%) – Position zu riskant')
+            stop_loss     = einstieg * 0.88
+            stop_loss_pct = 12.0
+
+        # ── LONG: Kursziele ───────────────────────────────────────────────────
+        ziele_preise = sorted([p for p in alle_preise if p > einstieg * 1.005])
+        while len(ziele_preise) < 3:
+            letztes = ziele_preise[-1] if ziele_preise else einstieg
+            ziele_preise.append(round(letztes + atr * 3, 2))
+        ziel_1, ziel_2, ziel_3 = ziele_preise[0], ziele_preise[1], ziele_preise[2]
+        z1_pct = round((ziel_1 - einstieg) / einstieg * 100, 1)
+        z2_pct = round((ziel_2 - einstieg) / einstieg * 100, 1)
+        z3_pct = round((ziel_3 - einstieg) / einstieg * 100, 1)
+        rr1    = round(z1_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+        rr2    = round(z2_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+        rr3    = round(z3_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+
+        # ── Gate: R:R-Minimum 2:1 ─────────────────────────────────────────────
+        if rr1 < 2.0 and typ == 'KAUFEN':
+            typ = 'BEOBACHTEN'
+            warnungen.append(f'R:R zu gering ({rr1}:1) – mindestens 2:1 für Kaufsignal erforderlich')
+
+        # ── Gate: Hard-Gates für KAUFEN ───────────────────────────────────────
         if typ == 'KAUFEN':
-            typ = 'BEOBACHTEN'
-        warnungen.append(f'Stop-Loss zu weit ({stop_loss_pct:.1f}%) – Position zu riskant')
-        stop_loss     = einstieg * 0.88
-        stop_loss_pct = 12.0
+            gates = 0
+            if vwap == 0 or aktuell >= vwap * 0.997:    gates += 1
+            if adx >= 15 or abstand_support_pct <= 1.5:  gates += 1
+            if rsi < 72:                                  gates += 1
+            if aktuell > ema200:                          gates += 1
+            if gates < 3:
+                typ = 'BEOBACHTEN'
+                warnungen.append('Zu viele widersprüchliche Faktoren – kein klares Kaufsignal')
 
-    # ── Kursziele ─────────────────────────────────────────────────────────────
-    ziele_preise = sorted([p for p in alle_preise if p > einstieg * 1.005])
-    while len(ziele_preise) < 3:
-        letztes = ziele_preise[-1] if ziele_preise else einstieg
-        ziele_preise.append(round(letztes + atr * 3, 2))
+        # ── LONG: Empfehlungen ────────────────────────────────────────────────
+        if typ == 'KAUFEN':
+            bedingungen.append(f'Stop-Loss bei {stop_loss:.2f} setzen (−{stop_loss_pct:.1f}%)')
+            bedingungen.append(f'Bei Ziel 1 ({ziel_1:.2f}) 40% sichern, Rest laufen lassen')
+            if rr2 >= 2:
+                bedingungen.append(f'R:R bei Ziel 2: {rr2}:1 – sehr attraktiv')
+        elif typ == 'BEOBACHTEN':
+            bedingungen.append('Auf Bestätigung warten (grüne Kerze, RSI-Anstieg, Volumen)')
+            bedingungen.append('Keinen Kauf ohne Bestätigung – zu früh einsteigen kostet Performance')
+        elif typ in ('VORSICHT', 'MEIDEN'):
+            bedingungen.append('Kein Kauf empfehlenswert – auf bessere Gelegenheit warten')
+            bedingungen.append('Bestehende Positionen mit Stop-Loss absichern')
 
-    ziel_1, ziel_2, ziel_3 = ziele_preise[0], ziele_preise[1], ziele_preise[2]
+    else:
+        # ── SHORT: Einstieg ───────────────────────────────────────────────────
+        einstieg = aktuell
+        bedingungen.insert(0, 'Leerverkauf / Put-Option zum aktuellen Kurs möglich')
 
-    def pct(ziel):    return round((ziel - einstieg) / einstieg * 100, 1)
-    def rr_calc(z):   return round(pct(z) / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+        # ── SHORT: Stop-Loss (über Widerstand) ────────────────────────────────
+        stop_loss     = naechste_resistance + (atr * 1.2)
+        stop_loss_pct = (stop_loss - einstieg) / einstieg * 100 if einstieg > 0 else 5.0
+        if stop_loss_pct < 0.5:
+            stop_loss     = einstieg * 1.005
+            stop_loss_pct = 0.5
+        elif stop_loss_pct > 15:
+            typ = 'MEIDEN'
+            warnungen.append(f'Stop-Loss zu weit ({stop_loss_pct:.1f}%) – Short-Position zu riskant')
+            stop_loss     = einstieg * 1.12
+            stop_loss_pct = 12.0
 
-    z1_pct, z2_pct, z3_pct = pct(ziel_1), pct(ziel_2), pct(ziel_3)
-    rr1,    rr2,    rr3    = rr_calc(ziel_1), rr_calc(ziel_2), rr_calc(ziel_3)
+        # ── SHORT: Kursziele (Preise unterhalb) ───────────────────────────────
+        ziele_preise = sorted([p for p in alle_preise if p < einstieg * 0.995], reverse=True)
+        while len(ziele_preise) < 3:
+            letztes = ziele_preise[-1] if ziele_preise else einstieg
+            ziele_preise.append(round(letztes - atr * 3, 2))
+        ziel_1, ziel_2, ziel_3 = ziele_preise[0], ziele_preise[1], ziele_preise[2]
+        z1_pct = round((einstieg - ziel_1) / einstieg * 100, 1)
+        z2_pct = round((einstieg - ziel_2) / einstieg * 100, 1)
+        z3_pct = round((einstieg - ziel_3) / einstieg * 100, 1)
+        rr1    = round(z1_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+        rr2    = round(z2_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
+        rr3    = round(z3_pct / stop_loss_pct, 1) if stop_loss_pct > 0 else 0
 
-    # ── Gate: R:R-Minimum 2:1 ────────────────────────────────────────────────
-    if rr1 < 2.0 and typ == 'KAUFEN':
-        typ = 'BEOBACHTEN'
-        warnungen.append(f'R:R zu gering ({rr1}:1) – mindestens 2:1 für Kaufsignal erforderlich')
+        # Gate: R:R-Minimum 2:1 für SHORT
+        if rr1 < 2.0 and typ == 'VERKAUFEN':
+            typ = 'MEIDEN'
+            warnungen.append(f'R:R zu gering ({rr1}:1) – mindestens 2:1 für Verkaufssignal erforderlich')
 
-    # ── Gate: Hard-Gates für KAUFEN ──────────────────────────────────────────
-    if typ == 'KAUFEN':
-        gates = 0
-        if vwap == 0 or aktuell >= vwap * 0.997:  gates += 1  # VWAP ok
-        if adx >= 15 or abstand_support_pct <= 1.5: gates += 1  # kein extremer Range ODER direkt am Level
-        if rsi < 72:                                gates += 1  # nicht extrem überkauft
-        if aktuell > ema200:                        gates += 1  # Langfristtrend positiv
-        if gates < 3:
-            typ = 'BEOBACHTEN'
-            warnungen.append('Zu viele widersprüchliche Faktoren – kein klares Kaufsignal')
+        # SHORT: Bearish-Gründe als Hauptbegründung
+        if not begruendungen:
+            begruendungen = warnungen[:3]
 
-    # ── Empfehlungen ──────────────────────────────────────────────────────────
-    if typ == 'KAUFEN':
-        bedingungen.append(f'Stop-Loss bei {stop_loss:.2f} setzen (−{stop_loss_pct:.1f}%)')
-        bedingungen.append(f'Bei Ziel 1 ({ziel_1:.2f}) 40% sichern, Rest laufen lassen')
-        if rr2 >= 2:
-            bedingungen.append(f'R:R bei Ziel 2: {rr2}:1 – sehr attraktiv')
-    elif typ == 'BEOBACHTEN':
-        bedingungen.append('Auf Bestätigung warten (grüne Kerze, RSI-Anstieg, Volumen)')
-        bedingungen.append('Keinen Kauf ohne Bestätigung – zu früh einsteigen kostet Performance')
-    elif typ in ('VORSICHT', 'MEIDEN'):
-        bedingungen.append('Kein Kauf empfehlenswert – auf bessere Gelegenheit warten')
-        bedingungen.append('Bestehende Positionen mit Stop-Loss absichern')
+        if typ == 'VERKAUFEN':
+            bedingungen.append(f'Stop-Loss bei {stop_loss:.2f} setzen (+{stop_loss_pct:.1f}%)')
+            bedingungen.append(f'Bei Ziel 1 ({ziel_1:.2f}) 40% eindecken, Rest laufen lassen')
+            if rr2 >= 2:
+                bedingungen.append(f'R:R bei Ziel 2: {rr2}:1 – sehr attraktiv')
+        else:
+            bedingungen.append('Kein Kauf empfehlenswert – bärisches Umfeld')
+            bedingungen.append('Bestehende Positionen mit Stop-Loss absichern')
 
     return {
         'typ':           typ,
@@ -1264,6 +1452,7 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         'farbe':         SIGNAL_FARBEN[typ],
         'staerke':       staerke,
         'score':         score,
+        'ist_short':     ist_short,
         'einstieg':      round(einstieg,  2),
         'stop_loss':     round(stop_loss, 2),
         'stop_loss_pct': round(stop_loss_pct, 1),
@@ -1282,7 +1471,8 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
 # ── Haupt-Analyse-Funktion ────────────────────────────────────────────────────
 
 def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
-    cfg = PERIODEN.get(periode, PERIODEN['1y'])
+    cfg      = PERIODEN.get(periode, PERIODEN['1y'])
+    intraday = cfg.get('intraday', False)
     df, name, waehrung, fehler = lade_daten(ticker, periode)
     if fehler:
         return {'fehler': fehler}
@@ -1293,9 +1483,31 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
 
     waehrung_symbol = WAEHRUNG_SYMBOLE.get(waehrung, waehrung)
 
+    # Für Intraday: echten tagesbasierten EMA200 laden (Intraday-EMA200 wäre nur Stunden)
+    ema200_daily = None
+    if intraday:
+        try:
+            _tk   = yf.Ticker(ticker)
+            _df_d = _tk.history(period='1y', interval='1d', auto_adjust=False)
+            if not _df_d.empty:
+                if isinstance(_df_d.columns, pd.MultiIndex):
+                    _df_d.columns = _df_d.columns.get_level_values(0)
+                _close_d = _df_d['Close']
+                try:
+                    _whr = _tk.fast_info.currency or 'USD'
+                    _fx  = hole_eur_kurs(_whr)
+                    if _fx != 1.0:
+                        _close_d = _close_d * _fx
+                except Exception:
+                    pass
+                if len(_close_d) >= 10:
+                    ema200_daily = round(_close_d.ewm(span=200, adjust=False).mean().iloc[-1], 4)
+        except Exception:
+            pass
+
     try:
         # Technische Indikatoren
-        ind     = berechne_indikatoren(df)
+        ind     = berechne_indikatoren(df, intraday=intraday, ema200_override=ema200_daily)
         aktuell = ind['aktuell']
 
         # Swing-Erkennung
@@ -1385,6 +1597,8 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
                 'bb_mid':        ind.get('bb_mid', 0),
                 'bb_pos':        round(ind.get('bb_pos', 0.5), 3),
                 'bb_breite':     ind.get('bb_breite', 0),
+                'stoch_k':       ind.get('stoch_k', 50),
+                'stoch_d':       ind.get('stoch_d', 50),
             },
             'chart_json':  chart_json,
             'signal':      signal,
