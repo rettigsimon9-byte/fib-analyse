@@ -913,7 +913,7 @@ def erkenne_kerzenformation(df: pd.DataFrame):
 
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
                               richtung: str, hoch: float, tief: float,
-                              bullisch_pct: float = 50.0):
+                              bullisch_pct: float = 50.0, intraday: bool = False):
     rsi      = ind['rsi']
     ema20    = ind['ema20']
     ema50    = ind['ema50']
@@ -1051,12 +1051,14 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     # ── Gates ────────────────────────────────────────────────────────────────
     kein_signal = abs(long_score - short_score) <= 1
 
-    # R:R-Gate: mindestens 2:1
-    if rr < 2.0:
+    # R:R-Gate: Intraday Fib-Spannen sind eng (0.5-2%), täglich viel weiter
+    rr_min = 1.5 if intraday else 2.0
+    if rr < rr_min:
         kein_signal = True
 
     # ADX-Gate: kein Signal bei extremem Range-Markt
-    if adx < 12:
+    adx_min = 10 if intraday else 12
+    if adx < adx_min:
         kein_signal = True
 
     # VWAP-Gate: LONG nur über VWAP, SHORT nur unter VWAP
@@ -1540,7 +1542,7 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
 
         # Daytrading Signal
-        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief, wkeit)
+        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief, wkeit, intraday)
 
         # Chart (nur wenn benötigt)
         if mit_chart:
