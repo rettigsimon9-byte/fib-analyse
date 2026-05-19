@@ -30,14 +30,17 @@
       <form action="/analyse" method="get">
         <div class="mb-3">
           <label class="form-label text-white fw-semibold">Aktie, ETF oder Kryptowährung</label>
-          <input type="text" name="ticker" id="ticker-input" class="form-control form-control-lg dark-input"
-                 placeholder="z.B. AAPL, NVDA, BTC-USD, SAP.DE …"
-                 value="{{ letzter_ticker or '' }}" autofocus required autocomplete="off">
-          <div id="ticker-preview" class="mt-1" style="display:none">
-            <small class="text-info"><i class="bi bi-info-circle me-1"></i><span id="ticker-name-preview"></span></small>
+          <div style="position:relative">
+            <input type="text" name="ticker" id="ticker-input" class="form-control form-control-lg dark-input"
+                   placeholder="Ticker oder Name, z.B. Heidelberg, AAPL, BTC …"
+                   value="{{ letzter_ticker or '' }}" autofocus required autocomplete="off">
+            <ul id="ticker-dropdown" class="list-unstyled mb-0"
+                style="display:none;position:absolute;left:0;right:0;top:100%;z-index:999;
+                       background:#1e293b;border:1px solid #334155;border-radius:0 0 8px 8px;
+                       max-height:260px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.4)"></ul>
           </div>
-          <div class="form-text text-muted">
-            US-Aktien: AAPL · Deutsche Aktien: SAP.DE · Krypto: BTC-USD · Indizes: ^DAX
+          <div class="form-text text-muted mt-1">
+            Name oder Ticker eingeben – Vorschläge erscheinen automatisch
           </div>
         </div>
         <div class="mb-4">
@@ -166,29 +169,77 @@
 
   renderWatchlist();
 
-  // Live Ticker-Preview
-  let lookupTimer = null;
+  // Autocomplete
   const tickerInput = document.getElementById('ticker-input');
-  const preview = document.getElementById('ticker-preview');
-  const previewName = document.getElementById('ticker-name-preview');
+  const dropdown    = document.getElementById('ticker-dropdown');
+  let searchTimer   = null;
+  let activeIndex   = -1;
+
+  function closeDropdown() {
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = '';
+    activeIndex = -1;
+  }
+
+  function selectItem(symbol) {
+    tickerInput.value = symbol;
+    closeDropdown();
+  }
+
+  function buildDropdown(results) {
+    dropdown.innerHTML = '';
+    if (!results.length) { closeDropdown(); return; }
+    results.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.style.cssText = 'padding:9px 14px;cursor:pointer;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;gap:8px';
+      li.innerHTML = `
+        <span style="color:#e2e8f0;font-weight:600;min-width:80px">${r.symbol}</span>
+        <span style="color:#94a3b8;font-size:.85em;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name}</span>
+        <span style="color:#475569;font-size:.75em;white-space:nowrap">${r.exchange}</span>`;
+      li.addEventListener('mousedown', (e) => { e.preventDefault(); selectItem(r.symbol); });
+      li.addEventListener('mouseover', () => {
+        [...dropdown.children].forEach((el, j) => el.style.background = j === i ? '#334155' : '');
+        activeIndex = i;
+      });
+      dropdown.appendChild(li);
+    });
+    dropdown.style.display = 'block';
+  }
 
   tickerInput.addEventListener('input', function () {
-    clearTimeout(lookupTimer);
+    clearTimeout(searchTimer);
     const val = this.value.trim();
-    if (!val) { preview.style.display = 'none'; return; }
-    lookupTimer = setTimeout(() => {
-      fetch(`/api/lookup?ticker=${encodeURIComponent(val)}`)
+    if (val.length < 2) { closeDropdown(); return; }
+    searchTimer = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(val)}`)
         .then(r => r.json())
-        .then(d => {
-          if (d.name && d.name !== val) {
-            previewName.textContent = `Gefunden: ${d.name} (${d.currency || '?'})`;
-            preview.style.display = 'block';
-          } else {
-            preview.style.display = 'none';
-          }
-        })
-        .catch(() => { preview.style.display = 'none'; });
-    }, 450);
+        .then(buildDropdown)
+        .catch(closeDropdown);
+    }, 300);
+  });
+
+  tickerInput.addEventListener('keydown', function (e) {
+    const items = dropdown.children;
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, items.length - 1);
+      [...items].forEach((el, i) => el.style.background = i === activeIndex ? '#334155' : '');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      [...items].forEach((el, i) => el.style.background = i === activeIndex ? '#334155' : '');
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault();
+      const symbol = items[activeIndex].querySelector('span').textContent;
+      selectItem(symbol);
+    } else if (e.key === 'Escape') {
+      closeDropdown();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!tickerInput.contains(e.target)) closeDropdown();
   });
 </script>
 </body>

@@ -90,6 +90,33 @@ def multi():
         perioden_liste=MULTI_PERIODEN,
     )
 
+@app.route('/api/search')
+def api_search():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([])
+    try:
+        import requests as req
+        r = req.get(
+            'https://query1.finance.yahoo.com/v1/finance/search',
+            params={'q': q, 'quotesCount': 7, 'newsCount': 0},
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=4,
+        )
+        quotes = r.json().get('quotes', [])
+        results = []
+        for qt in quotes:
+            symbol = qt.get('symbol', '')
+            name = qt.get('longname') or qt.get('shortname') or symbol
+            exch = qt.get('exchDisp', '')
+            typ = qt.get('quoteType', '')
+            if typ not in ('EQUITY', 'ETF', 'CRYPTOCURRENCY', 'INDEX', 'FUTURE'):
+                continue
+            results.append({'symbol': symbol, 'name': name, 'exchange': exch})
+        return jsonify(results)
+    except Exception:
+        return jsonify([])
+
 @app.route('/api/lookup')
 def api_lookup():
     ticker = request.args.get('ticker', '').strip().upper()
