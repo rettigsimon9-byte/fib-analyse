@@ -932,8 +932,9 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     supports    = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
     resistances = sorted([p for p in alle_preise if p > aktuell * 1.0005])
 
-    naechster_support   = supports[0]    if supports    else tief
-    naechste_resistance = resistances[0] if resistances else hoch
+    # Fallback auf ATR-Projektion wenn Kurs außerhalb aller Fib-Level
+    naechster_support   = supports[0]    if supports    else aktuell - atr * 2
+    naechste_resistance = resistances[0] if resistances else aktuell + atr * 2
 
     abstand_sup_pct = (aktuell - naechster_support)   / aktuell * 100
     abstand_res_pct = (naechste_resistance - aktuell) / aktuell * 100
@@ -1045,7 +1046,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         sl_pct = 0.5
         stop_loss = aktuell * (1 - sl_pct / 100) if dt_richtung == 'LONG' else aktuell * (1 + sl_pct / 100)
 
-    tp_pct = max(0.2, tp_pct)
+    tp_pct = max(0.01, tp_pct)
     rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
 
     # ── Gates ────────────────────────────────────────────────────────────────
