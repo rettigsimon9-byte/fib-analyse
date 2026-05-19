@@ -215,9 +215,8 @@ def berechne_indikatoren(df: pd.DataFrame, intraday: bool = True,
     indikatoren['ema20']  = close.ewm(span=20,  adjust=False).mean().iloc[-1]
     indikatoren['ema50']  = close.ewm(span=50,  adjust=False).mean().iloc[-1]
     indikatoren['ema200'] = close.ewm(span=200, adjust=False).mean().iloc[-1]
-    # Für Intraday: tagesbasierter EMA200 überschreibt Intraday-EMA200
-    if ema200_override is not None:
-        indikatoren['ema200'] = ema200_override
+    # Tagesbasierter EMA200 nur für Chart-Anzeige gespeichert, nicht für Scoring
+    indikatoren['ema200_daily'] = ema200_override if ema200_override is not None else indikatoren['ema200']
 
     # RSI (14)
     delta    = close.diff()
@@ -555,7 +554,7 @@ def berechne_zonen(levels: dict, toleranz_pct: float = 0.5):
 
 def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                    hoch: float, tief: float, richtung: str, ticker: str,
-                   intraday: bool = False):
+                   intraday: bool = False, ema200_daily: float = None):
 
     # ── Indikatoren berechnen für Subcharts ──────────────────────────────────
     close = df['Close']
@@ -643,6 +642,16 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
         line=dict(color='#f59e0b', width=1.8, dash='dot'),
         name='VWAP', showlegend=False,
     ), row=1, col=1)
+
+    # ── Täglicher EMA200 (nur auf Intraday-Charts als Referenz) ──────────────
+    if intraday and ema200_daily is not None:
+        fig.add_hline(
+            y=ema200_daily, row=1, col=1,
+            line=dict(color='rgba(251,191,36,0.7)', width=1.2, dash='dashdot'),
+            annotation_text=f'  EMA200d {ema200_daily:.2f}',
+            annotation_position='right',
+            annotation_font=dict(size=9, color='#fbbf24'),
+        )
 
     # Fibonacci-Levels — Label nur zeigen wenn genug Abstand zum letzten Label
     sorted_levels     = sorted(levels.items(), key=lambda x: x[1])
@@ -1535,8 +1544,8 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
 
         # Chart (nur wenn benötigt)
         if mit_chart:
-            intraday  = cfg.get('intraday', False)
-            chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker, intraday)
+            chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker,
+                                         intraday, ema200_daily)
         else:
             chart_json = None
 
