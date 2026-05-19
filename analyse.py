@@ -1051,9 +1051,9 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     # ── Gates ────────────────────────────────────────────────────────────────
     kein_signal = abs(long_score - short_score) <= 1
 
-    # R:R-Gate: Intraday Fib-Spannen sind eng (0.5-2%), täglich viel weiter
-    rr_min = 1.5 if intraday else 2.0
-    if rr < rr_min:
+    # R:R-Gate: nur für Swing-Charts (Intraday Fib-Spannen sind geometrisch
+    # immer eng und symmetrisch → R:R fast immer < 1.5, Gate wäre sinnlos)
+    if not intraday and rr < 2.0:
         kein_signal = True
 
     # ADX-Gate: kein Signal bei extremem Range-Markt
