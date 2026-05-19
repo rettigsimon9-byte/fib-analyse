@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ d.ticker }} – Fibonacci Analyse</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dark-body">
+
+<!-- Topbar -->
+<nav class="analyse-topbar">
+  <a href="/" class="btn btn-sm btn-ghost me-3">
+    <i class="bi bi-arrow-left"></i> Zurück
+  </a>
+  <span class="ticker-badge">{{ d.ticker }}</span>
+  <span class="stock-name">{{ d.name }}</span>
+  <span class="waehrung-badge">{{ d.waehrung_symbol }} {{ d.waehrung }}</span>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/multi?ticker={{ d.ticker }}" class="btn btn-sm btn-ghost" title="Multi-Timeframe Ansicht">
+      <i class="bi bi-layers me-1"></i>Multi-TF
+    </a>
+    <button id="watchlist-btn" onclick="toggleWatchlist()" class="btn btn-sm btn-ghost" title="Zur Watchlist hinzufügen">
+      <i id="watchlist-icon" class="bi bi-star"></i>
+    </button>
+    <form action="/analyse" method="get" class="d-flex gap-1 align-items-center">
+      <input type="hidden" name="ticker" value="{{ d.ticker }}">
+      {% for key, cfg in perioden.items() %}
+      <button type="submit" name="periode" value="{{ key }}"
+              class="btn btn-xs-period {% if key == aktuelle_periode %}active{% endif %}">
+        {{ cfg.label }}
+      </button>
+      {% endfor %}
+    </form>
+  </div>
+</nav>
+
+<div class="container-fluid px-3 pt-3 pb-5">
+
+  <!-- Header-Zeile -->
+  <div class="row g-3 mb-3">
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">Aktueller Kurs</div>
+        <div class="stat-value text-white">{{ '%.2f'|format(d.aktuell) }} {{ d.waehrung_symbol }}</div>
+        <div class="stat-sub {% if d.change_pct >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {% if d.change_pct >= 0 %}▲{% else %}▼{% endif %}
+          {{ '%.2f'|format(d.change_abs|abs) }} {{ d.waehrung_symbol }} ({{ '%.2f'|format(d.change_pct|abs) }} %)
+        </div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">Bullisch</div>
+        <div class="stat-value {% if d.wahrscheinlichkeit_bullisch >= 55 %}text-success{% elif d.wahrscheinlichkeit_bullisch <= 45 %}text-danger{% else %}text-warning{% endif %}">
+          {{ d.wahrscheinlichkeit_bullisch }} %
+        </div>
+        <div class="stat-sub text-muted">Bärisch: {{ d.wahrscheinlichkeit_baerisch }} %</div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">RSI (14)</div>
+        <div class="stat-value {% if d.indikatoren.rsi < 35 %}text-success{% elif d.indikatoren.rsi > 65 %}text-danger{% else %}text-white{% endif %}">
+          {{ d.indikatoren.rsi }}
+        </div>
+        <div class="stat-sub text-muted">
+          {% if d.indikatoren.rsi < 30 %}Stark überverkauft
+          {% elif d.indikatoren.rsi < 40 %}Überverkauft
+          {% elif d.indikatoren.rsi > 70 %}Stark überkauft
+          {% elif d.indikatoren.rsi > 60 %}Überkauft
+          {% else %}Neutral{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">Nächster Support</div>
+        <div class="stat-value text-success">
+          {% if d.support %}{{ '%.2f'|format(d.support) }} {{ d.waehrung_symbol }}{% else %}–{% endif %}
+        </div>
+        <div class="stat-sub text-muted">
+          {% if d.support %}{{ '%.1f'|format((d.aktuell - d.support) / d.aktuell * 100) }} % entfernt{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">Nächster Widerstand</div>
+        <div class="stat-value text-danger">
+          {% if d.resistance %}{{ '%.2f'|format(d.resistance) }} {{ d.waehrung_symbol }}{% else %}–{% endif %}
+        </div>
+        <div class="stat-sub text-muted">
+          {% if d.resistance %}{{ '%.1f'|format((d.resistance - d.aktuell) / d.aktuell * 100) }} % entfernt{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="stat-card">
+        <div class="stat-label">Swing-Richtung</div>
+        <div class="stat-value {% if d.richtung == 'aufwärts' %}text-success{% else %}text-danger{% endif %}">
+          {% if d.richtung == 'aufwärts' %}↗ Aufwärts{% else %}↘ Abwärts{% endif %}
+        </div>
+        <div class="stat-sub text-muted">Spanne: {{ '%.2f'|format(d.swing_spanne) }} {{ d.waehrung_symbol }}</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Wahrscheinlichkeitsbalken -->
+  <div class="prob-bar-wrap mb-3">
+    <div class="prob-label text-success">Bullisch {{ d.wahrscheinlichkeit_bullisch }} %</div>
+    <div class="prob-bar">
+      <div class="prob-fill-bull" style="width: {{ d.wahrscheinlichkeit_bullisch }}%"></div>
+      <div class="prob-fill-bear" style="width: {{ d.wahrscheinlichkeit_baerisch }}%"></div>
+    </div>
+    <div class="prob-label text-danger text-end">{{ d.wahrscheinlichkeit_baerisch }} % Bärisch</div>
+  </div>
+
+  <!-- Handelssignal-Box -->
+  {% set s = d.signal %}
+  <div class="signal-box signal-box-{{ s.farbe }} mb-3">
+
+    <div class="signal-header">
+      <div class="signal-typ">{{ s.text }}</div>
+      <div class="signal-score-wrap">
+        <span class="text-muted small me-2">Signalstärke</span>
+        <div class="signal-bar-outer">
+          <div class="signal-bar-inner bg-{{ s.farbe }}" style="width:{{ s.staerke }}%"></div>
+        </div>
+        <span class="signal-score-num">{{ s.staerke }}%</span>
+      </div>
+    </div>
+
+    <div class="row g-2 mt-2">
+
+      <!-- Einstieg & Stop-Loss -->
+      <div class="col-6 col-md-3">
+        <div class="signal-metric">
+          <div class="signal-metric-label">Einstieg</div>
+          <div class="signal-metric-value text-white">{{ '%.2f'|format(s.einstieg) }} {{ d.waehrung_symbol }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="signal-metric">
+          <div class="signal-metric-label">Stop-Loss</div>
+          <div class="signal-metric-value text-danger">
+            {{ '%.2f'|format(s.stop_loss) }} {{ d.waehrung_symbol }}
+            <span class="signal-pct text-danger">−{{ s.stop_loss_pct }} %</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Kursziele -->
+      <div class="col-4 col-md-2">
+        <div class="signal-metric">
+          <div class="signal-metric-label">Ziel 1</div>
+          <div class="signal-metric-value text-success">{{ '%.2f'|format(s.ziel_1) }} {{ d.waehrung_symbol }}</div>
+          <div class="signal-meta text-success">+{{ s.ziel_1_pct }} % &nbsp;|&nbsp; R:R {{ s.rr_1 }}</div>
+        </div>
+      </div>
+      <div class="col-4 col-md-2">
+        <div class="signal-metric">
+          <div class="signal-metric-label">Ziel 2</div>
+          <div class="signal-metric-value text-success">{{ '%.2f'|format(s.ziel_2) }} {{ d.waehrung_symbol }}</div>
+          <div class="signal-meta text-success">+{{ s.ziel_2_pct }} % &nbsp;|&nbsp; R:R {{ s.rr_2 }}</div>
+        </div>
+      </div>
+      <div class="col-4 col-md-2">
+        <div class="signal-metric">
+          <div class="signal-metric-label">Ziel 3</div>
+          <div class="signal-metric-value text-success">{{ '%.2f'|format(s.ziel_3) }} {{ d.waehrung_symbol }}</div>
+          <div class="signal-meta text-success">+{{ s.ziel_3_pct }} % &nbsp;|&nbsp; R:R {{ s.rr_3 }}</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Begründungen / Warnungen / Bedingungen -->
+    <div class="row g-2 mt-1">
+      {% if s.begruendungen %}
+      <div class="col-md-4">
+        <div class="signal-reason-block">
+          <div class="signal-reason-title text-success"><i class="bi bi-check-circle me-1"></i>Kaufsignale</div>
+          {% for b in s.begruendungen %}
+          <div class="signal-reason-item text-success">• {{ b }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if s.warnungen %}
+      <div class="col-md-4">
+        <div class="signal-reason-block">
+          <div class="signal-reason-title text-danger"><i class="bi bi-exclamation-triangle me-1"></i>Risiken</div>
+          {% for w in s.warnungen %}
+          <div class="signal-reason-item text-danger">• {{ w }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if s.bedingungen %}
+      <div class="col-md-4">
+        <div class="signal-reason-block">
+          <div class="signal-reason-title text-warning"><i class="bi bi-lightbulb me-1"></i>Empfehlungen</div>
+          {% for c in s.bedingungen %}
+          <div class="signal-reason-item text-warning">• {{ c }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Daytrading Box -->
+  {% set dt = d.daytrade %}
+  <div class="daytrade-box {% if dt.kein_signal %}daytrade-neutral{% elif dt.richtung == 'LONG' %}daytrade-long{% else %}daytrade-short{% endif %} mb-3">
+
+    <div class="daytrade-header">
+      <div class="daytrade-title">
+        <i class="bi bi-lightning-fill me-1"></i> Daytrading Signal
+        <span class="text-muted small ms-2">(Intraday — Position heute schließen)</span>
+      </div>
+      {% if dt.kein_signal %}
+        <span class="daytrade-badge badge-neutral">⚪ KEIN KLARES SIGNAL</span>
+      {% elif dt.richtung == 'LONG' %}
+        <span class="daytrade-badge badge-long">🟢 LONG — KAUFEN</span>
+      {% else %}
+        <span class="daytrade-badge badge-short">🔴 SHORT — SHORTEN</span>
+      {% endif %}
+    </div>
+
+    {% if not dt.kein_signal %}
+    <div class="row g-2 mt-2">
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Einstieg (jetzt)</div>
+          <div class="daytrade-metric-value">{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">
+            {% if dt.richtung == 'LONG' %}Position schließen bei{% else %}Position schließen bei{% endif %}
+            <span class="{% if dt.richtung == 'LONG' %}text-success{% else %}text-danger{% endif %}"> (Take Profit)</span>
+          </div>
+          <div class="daytrade-metric-value {% if dt.richtung == 'LONG' %}text-success{% else %}text-danger{% endif %}">
+            {{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}
+            <span class="small">{% if dt.richtung == 'LONG' %}+{% else %}-{% endif %}{{ dt.tp_pct }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Stop-Loss <span class="text-danger">(Notausstieg)</span></div>
+          <div class="daytrade-metric-value text-danger">
+            {{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}
+            <span class="small">-{{ dt.sl_pct }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="daytrade-metric">
+          <div class="daytrade-metric-label">Chance / Risiko</div>
+          <div class="daytrade-metric-value {% if dt.rr >= 2 %}text-success{% elif dt.rr >= 1 %}text-warning{% else %}text-danger{% endif %}">
+            {{ dt.rr }}:1
+            <span class="small text-muted">{% if dt.rr >= 2 %}Gut{% elif dt.rr >= 1 %}OK{% else %}Schlecht{% endif %}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Widerspruchs-Warnung -->
+    {% if dt.widerspruch %}
+    <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+      ⚠️ <strong>Achtung:</strong> Dieses Daytrading-Signal widerspricht dem Gesamtbild der Analyse
+      ({{ d.wahrscheinlichkeit_bullisch }}% bullisch / {{ d.wahrscheinlichkeit_baerisch }}% bärisch).
+      Erhöhtes Risiko — nur mit engem Stop-Loss handeln!
+    </div>
+    {% endif %}
+
+    <!-- Gründe -->
+    <div class="daytrade-gruende mt-2">
+      {% for g in dt.gruende %}
+        <span class="daytrade-grund {% if dt.richtung == 'LONG' %}grund-long{% else %}grund-short{% endif %}">{{ g }}</span>
+      {% endfor %}
+    </div>
+
+    <!-- Hinweis -->
+    <div class="daytrade-hinweis mt-2">
+      <i class="bi bi-info-circle me-1"></i>
+      {% if dt.richtung == 'LONG' %}
+        Kaufe jetzt bei <strong>{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</strong>,
+        schließe die Position bei <strong>{{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}</strong>.
+        Stop-Loss bei <strong>{{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}</strong> nicht vergessen.
+      {% else %}
+        Shorte jetzt bei <strong>{{ '%.2f'|format(dt.einstieg) }} {{ d.waehrung_symbol }}</strong>,
+        schließe die Short-Position bei <strong>{{ '%.2f'|format(dt.take_profit) }} {{ d.waehrung_symbol }}</strong>.
+        Stop-Loss bei <strong>{{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}</strong> nicht vergessen.
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="text-muted mt-2 small">
+      <i class="bi bi-info-circle me-1"></i>
+      Long- und Short-Signale sind zu ausgeglichen — besser abwarten bis ein klarer Trend entsteht.
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Chart + rechte Spalte -->
+  <div class="row g-3">
+
+    <div class="col-xl-8">
+      <div class="dark-card mb-3">
+        <div class="dark-card-header">
+          <i class="bi bi-graph-up me-1"></i>
+          {{ d.ticker }} – {{ d.name }} ({{ d.periode }})
+          <span class="ms-2 badge-swing {% if d.richtung == 'aufwärts' %}badge-bull{% else %}badge-bear{% endif %}">
+            Swing {{ d.richtung }}
+          </span>
+        </div>
+        <div id="chart" style="min-height:850px"></div>
+      </div>
+    </div>
+
+    <div class="col-xl-4">
+
+      <div class="dark-card mb-3">
+        <div class="dark-card-header"><i class="bi bi-activity me-1"></i> Technische Indikatoren</div>
+        <div class="dark-card-body">
+          <table class="table table-dark table-sm mb-0 ind-table">
+            <tr>
+              <td class="text-muted">EMA 20</td>
+              <td class="text-end fw-mono {% if d.aktuell > d.indikatoren.ema20 %}text-success{% else %}text-danger{% endif %}">
+                {{ '%.2f'|format(d.indikatoren.ema20) }} {{ d.waehrung_symbol }}
+              </td>
+            </tr>
+            <tr>
+              <td class="text-muted">EMA 50</td>
+              <td class="text-end fw-mono {% if d.aktuell > d.indikatoren.ema50 %}text-success{% else %}text-danger{% endif %}">
+                {{ '%.2f'|format(d.indikatoren.ema50) }} {{ d.waehrung_symbol }}
+              </td>
+            </tr>
+            <tr>
+              <td class="text-muted">EMA 200</td>
+              <td class="text-end fw-mono {% if d.aktuell > d.indikatoren.ema200 %}text-success{% else %}text-danger{% endif %}">
+                {{ '%.2f'|format(d.indikatoren.ema200) }} {{ d.waehrung_symbol }}
+              </td>
+            </tr>
+            <tr><td colspan="2"><hr class="my-1 border-secondary"></td></tr>
+            <tr>
+              <td class="text-muted">RSI (14)</td>
+              <td class="text-end fw-mono {% if d.indikatoren.rsi < 35 %}text-success{% elif d.indikatoren.rsi > 65 %}text-danger{% else %}text-white{% endif %}">
+                {{ d.indikatoren.rsi }}
+              </td>
+            </tr>
+            <tr>
+              <td class="text-muted">MACD</td>
+              <td class="text-end fw-mono {% if d.indikatoren.macd > d.indikatoren.macd_signal %}text-success{% else %}text-danger{% endif %}">
+                {{ '%.4f'|format(d.indikatoren.macd) }}
+              </td>
+            </tr>
+            <tr>
+              <td class="text-muted">ATR (14)</td>
+              <td class="text-end fw-mono text-white">{{ '%.2f'|format(d.indikatoren.atr) }} {{ d.waehrung_symbol }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">Volumen</td>
+              <td class="text-end fw-mono {% if d.indikatoren.volumen_ratio > 1.3 %}text-warning{% else %}text-white{% endif %}">
+                {{ '%.1f'|format(d.indikatoren.volumen_ratio) }}x ⌀
+              </td>
+            </tr>
+            <tr><td colspan="2"><hr class="my-1 border-secondary"></td></tr>
+            <tr>
+              <td class="text-muted">52W Hoch</td>
+              <td class="text-end fw-mono text-white">{{ '%.2f'|format(d.indikatoren.hoch52w) }} {{ d.waehrung_symbol }}</td>
+            </tr>
+            <tr>
+              <td class="text-muted">52W Tief</td>
+              <td class="text-end fw-mono text-white">{{ '%.2f'|format(d.indikatoren.tief52w) }} {{ d.waehrung_symbol }}</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      {% if d.zonen %}
+      <div class="dark-card mb-3">
+        <div class="dark-card-header"><i class="bi bi-layers me-1"></i> Confluence-Zonen</div>
+        <div class="dark-card-body p-0">
+          {% for z in d.zonen|sort(attribute='preis_mitte', reverse=True) %}
+          <div class="zone-row {% if z.preis_mitte > d.aktuell %}zone-resist{% else %}zone-support{% endif %}">
+            <div class="zone-price">{{ '%.2f'|format(z.preis_mitte) }} {{ d.waehrung_symbol }}</div>
+            <div class="zone-meta">
+              <span class="zone-strength">
+                {% for _ in range(z.staerke) %}★{% endfor %}
+                ({{ z.staerke }} Levels)
+              </span>
+              <span class="zone-levels text-muted">{{ z.levels|join(', ') }}</span>
+            </div>
+            <div class="zone-type">
+              {% if z.preis_mitte > d.aktuell %}
+                <span class="badge badge-resist">Widerstand</span>
+              {% else %}
+                <span class="badge badge-supp">Support</span>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <!-- Fibonacci-Levels Tabelle + Faktoren -->
+  <div class="row g-3 mt-1">
+
+    <div class="col-lg-6">
+      <div class="dark-card">
+        <div class="dark-card-header">
+          <i class="bi bi-table me-1"></i> Fibonacci-Levels
+          <span class="text-muted small ms-2">
+            Swing: {{ '%.2f'|format(d.tief) }} {{ d.waehrung_symbol }} → {{ '%.2f'|format(d.hoch) }} {{ d.waehrung_symbol }}
+          </span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-dark table-sm table-hover mb-0">
+            <thead>
+              <tr class="text-muted">
+                <th>Level</th>
+                <th class="text-end">Preis ({{ d.waehrung_symbol }})</th>
+                <th class="text-end">Abstand</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for lv in d.levels %}
+              <tr class="{% if lv.typ == 'aktuell' %}row-aktuell{% endif %}">
+                <td>
+                  <span class="fib-dot" style="background:{{ lv.farbe }}"></span>
+                  {{ lv.name }}
+                </td>
+                <td class="text-end fw-mono text-white">{{ '%.2f'|format(lv.preis) }}</td>
+                <td class="text-end fw-mono {% if lv.abstand > 0 %}text-danger{% else %}text-success{% endif %}">
+                  {% if lv.abstand > 0 %}+{% endif %}{{ '%.1f'|format(lv.abstand) }} %
+                </td>
+                <td>
+                  {% if lv.typ == 'resistance' %}
+                    <span class="badge badge-resist">Widerstand</span>
+                  {% elif lv.typ == 'support' %}
+                    <span class="badge badge-supp">Support</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">Aktuell</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="dark-card">
+        <div class="dark-card-header">
+          <i class="bi bi-list-check me-1"></i> Analysefaktoren
+        </div>
+        <div class="dark-card-body p-0">
+          {% for f in d.faktoren %}
+          <div class="faktor-row">
+            <div class="faktor-text text-white">{{ f.text }}</div>
+            <div class="faktor-wert text-{{ f.farbe }} fw-bold">{{ f.wert }}</div>
+          </div>
+          {% endfor %}
+          <div class="faktor-row faktor-total">
+            <div class="faktor-text fw-bold text-white">Score → Bullisch</div>
+            <div class="faktor-wert fw-bold {% if d.wahrscheinlichkeit_bullisch >= 55 %}text-success{% elif d.wahrscheinlichkeit_bullisch <= 45 %}text-danger{% else %}text-warning{% endif %}">
+              {{ d.wahrscheinlichkeit_bullisch }} %
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-dark border-secondary mt-3 small text-muted">
+        ⚠️ Diese Analyse basiert auf technischen Indikatoren und dem Fibonacci-Prinzip.
+        Sie stellt <strong>keine Anlageberatung</strong> dar. Vergangene Kursentwicklungen
+        sind kein verlässlicher Indikator für die Zukunft. Investitionen in Wertpapiere
+        sind mit Risiken verbunden.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script>
+  // Watchlist
+  const TICKER = '{{ d.ticker }}';
+  const NAME   = '{{ d.name }}';
+
+  function getWatchlist() {
+    return JSON.parse(localStorage.getItem('watchlist') || '[]');
+  }
+
+  function toggleWatchlist() {
+    let list = getWatchlist();
+    const idx = list.findIndex(t => t.symbol === TICKER);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+    } else {
+      list.push({ symbol: TICKER, name: NAME });
+    }
+    localStorage.setItem('watchlist', JSON.stringify(list));
+    updateWatchlistBtn();
+  }
+
+  function updateWatchlistBtn() {
+    const inList = getWatchlist().some(t => t.symbol === TICKER);
+    document.getElementById('watchlist-icon').className = inList
+      ? 'bi bi-star-fill text-warning'
+      : 'bi bi-star';
+    document.getElementById('watchlist-btn').title = inList
+      ? 'Von Watchlist entfernen'
+      : 'Zur Watchlist hinzufügen';
+  }
+
+  updateWatchlistBtn();
+
+  const chartData = {{ d.chart_json | safe }};
+  Plotly.newPlot('chart', chartData.data, chartData.layout, {
+    responsive: true,
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
+    displaylogo: false,
+  });
+</script>
+</body>
+</html>
