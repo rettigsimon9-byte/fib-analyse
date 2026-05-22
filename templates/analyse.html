@@ -236,6 +236,7 @@
             </span>
             {% endfor %}
           </div>
+          <div class="muster-karten-wrap" id="signal-muster-karten"></div>
         </div>
       </div>
     </div>
@@ -334,6 +335,7 @@
         <span class="muster-badge muster-{{ m.richtung }} muster-chart">📊 {{ m.text }}</span>
         {% endfor %}
       </div>
+      <div class="muster-karten-wrap" id="daytrade-muster-karten"></div>
     </div>
     {% endif %}
 
@@ -580,6 +582,157 @@
   }
 
   updateWatchlistBtn();
+
+  // ── Muster-Daten aus Jinja2 ────────────────────────────────────────────────
+  const KERZEN_MUSTER = {{ d.kerzen_muster | tojson }};
+  const CHART_MUSTER  = {{ d.chart_muster  | tojson }};
+
+  // ── SVG-Illustrationen je Muster ────────────────────────────────────────────
+  const MUSTER_SVG = {
+    // ── Chart-Muster ──
+    double_bottom: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,14 20,52 36,25 54,52 71,14" stroke="#22c55e" stroke-width="2" fill="none" stroke-linejoin="round"/>
+      <line x1="36" y1="25" x2="96" y2="25" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+      <polyline points="71,14 96,14" stroke="#22c55e" stroke-width="2" fill="none"/>
+    </svg>`,
+    double_top: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,46 20,8 36,35 54,8 71,46" stroke="#ef4444" stroke-width="2" fill="none" stroke-linejoin="round"/>
+      <line x1="36" y1="35" x2="96" y2="35" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+      <polyline points="71,46 96,46" stroke="#ef4444" stroke-width="2" fill="none"/>
+    </svg>`,
+    bull_flag: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="56" x2="36" y2="8" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="36" y1="8"  x2="88" y2="21" stroke="#22c55e" stroke-width="1.6"/>
+      <line x1="36" y1="19" x2="88" y2="32" stroke="#22c55e" stroke-width="1.6"/>
+      <line x1="88" y1="21" x2="88" y2="32" stroke="#22c55e" stroke-width="1" stroke-dasharray="3"/>
+    </svg>`,
+    bear_flag: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="4"  x2="36" y2="52" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="36" y1="52" x2="88" y2="39" stroke="#ef4444" stroke-width="1.6"/>
+      <line x1="36" y1="41" x2="88" y2="28" stroke="#ef4444" stroke-width="1.6"/>
+      <line x1="88" y1="39" x2="88" y2="28" stroke="#ef4444" stroke-width="1" stroke-dasharray="3"/>
+    </svg>`,
+    ascending_triangle: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="5" y1="10" x2="95" y2="10" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,3"/>
+      <polyline points="5,56 22,10 38,44 55,10 71,30 87,10" stroke="#22c55e" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+    </svg>`,
+    descending_triangle: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="5" y1="50" x2="95" y2="50" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,3"/>
+      <polyline points="5,4 22,50 38,16 55,50 71,30 87,50" stroke="#ef4444" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+    </svg>`,
+
+    // ── Kerzen-Muster ──
+    hammer: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="22" y1="10" x2="22" y2="42" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="16" y="16" width="12" height="18" fill="#ef4444"/>
+      <line x1="42" y1="14" x2="42" y2="46" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="36" y="20" width="12" height="18" fill="#ef4444"/>
+      <line x1="65" y1="12" x2="65" y2="56" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="58" y="12" width="14" height="10" fill="#22c55e"/>
+    </svg>`,
+    inverted_hammer: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="22" y1="12" x2="22" y2="46" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="16" y="20" width="12" height="18" fill="#ef4444"/>
+      <line x1="42" y1="16" x2="42" y2="48" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="36" y="24" width="12" height="18" fill="#ef4444"/>
+      <line x1="65" y1="8" x2="65" y2="54" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="58" y="42" width="14" height="10" fill="#22c55e"/>
+    </svg>`,
+    shooting_star: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="22" y1="14" x2="22" y2="48" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="16" y="26" width="12" height="16" fill="#22c55e"/>
+      <line x1="42" y1="10" x2="42" y2="44" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="36" y="20" width="12" height="16" fill="#22c55e"/>
+      <line x1="65" y1="6"  x2="65" y2="54" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="58" y="42" width="14" height="10" fill="#ef4444"/>
+    </svg>`,
+    hanging_man: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="22" y1="10" x2="22" y2="44" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="16" y="16" width="12" height="18" fill="#22c55e"/>
+      <line x1="42" y1="8"  x2="42" y2="42" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="36" y="14" width="12" height="18" fill="#22c55e"/>
+      <line x1="65" y1="8"  x2="65" y2="54" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="58" y="8"  width="14" height="10" fill="#ef4444"/>
+    </svg>`,
+    bullisches_engulfing: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="34" y1="16" x2="34" y2="50" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="27" y="22" width="14" height="22" fill="#ef4444"/>
+      <line x1="62" y1="10" x2="62" y2="54" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="54" y="16" width="16" height="32" fill="#22c55e"/>
+    </svg>`,
+    baerisches_engulfing: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="34" y1="14" x2="34" y2="48" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="27" y="20" width="14" height="22" fill="#22c55e"/>
+      <line x1="62" y1="8"  x2="62" y2="52" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="54" y="14" width="16" height="32" fill="#ef4444"/>
+    </svg>`,
+    morgenstern: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="20" y1="8"  x2="20" y2="52" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="12" y="12" width="16" height="32" fill="#ef4444"/>
+      <line x1="50" y1="38" x2="50" y2="54" stroke="#f59e0b" stroke-width="1.3"/>
+      <rect x="44" y="40" width="12" height="8"  fill="#f59e0b"/>
+      <line x1="80" y1="8"  x2="80" y2="52" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="72" y="14" width="16" height="28" fill="#22c55e"/>
+    </svg>`,
+    abendstern: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="20" y1="8"  x2="20" y2="52" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="12" y="18" width="16" height="28" fill="#22c55e"/>
+      <line x1="50" y1="6"  x2="50" y2="22" stroke="#f59e0b" stroke-width="1.3"/>
+      <rect x="44" y="8"  width="12" height="8"  fill="#f59e0b"/>
+      <line x1="80" y1="8"  x2="80" y2="52" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="72" y="12" width="16" height="32" fill="#ef4444"/>
+    </svg>`,
+    doji: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="50" y1="6"  x2="50" y2="54" stroke="#94a3b8" stroke-width="1.5"/>
+      <line x1="34" y1="30" x2="66" y2="30" stroke="#94a3b8" stroke-width="2.5"/>
+    </svg>`,
+    spinning_top: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="50" y1="6"  x2="50" y2="54" stroke="#94a3b8" stroke-width="1.5"/>
+      <rect x="38" y="22" width="24" height="16" fill="#94a3b8"/>
+    </svg>`,
+    bullischer_marubozu: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <rect x="32" y="8" width="36" height="44" fill="#22c55e"/>
+    </svg>`,
+    baerischer_marubozu: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <rect x="32" y="8" width="36" height="44" fill="#ef4444"/>
+    </svg>`,
+    tweezer_bottom: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="34" y1="10" x2="34" y2="50" stroke="#ef4444" stroke-width="1.3"/>
+      <rect x="27" y="16" width="14" height="24" fill="#ef4444"/>
+      <line x1="62" y1="18" x2="62" y2="50" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="55" y="22" width="14" height="28" fill="#22c55e"/>
+      <line x1="22" y1="50" x2="78" y2="50" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,3"/>
+    </svg>`,
+    tweezer_top: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="34" y1="10" x2="34" y2="52" stroke="#22c55e" stroke-width="1.3"/>
+      <rect x="27" y="20" width="14" height="24" fill="#22c55e"/>
+      <line x1="62" y1="10" x2="62" y2="48" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="55" y="10" width="14" height="28" fill="#ef4444"/>
+      <line x1="22" y1="10" x2="78" y2="10" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,3"/>
+    </svg>`,
+  };
+
+  function renderMusterKarten(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const alle = [...KERZEN_MUSTER, ...CHART_MUSTER];
+    if (!alle.length) return;
+    container.innerHTML = alle.map(m => {
+      const svg = MUSTER_SVG[m.name] || '';
+      if (!svg) return '';
+      const cls = m.richtung === 'bullisch' ? 'karte-bullisch'
+                : m.richtung === 'baerisch' ? 'karte-baerisch'
+                : 'karte-neutral';
+      const kurztext = m.text.split('–')[0].trim();
+      return `<div class="muster-karte ${cls}">
+        <div class="muster-karte-svg">${svg}</div>
+        <div class="muster-karte-label">${kurztext}</div>
+      </div>`;
+    }).join('');
+  }
+
+  renderMusterKarten('signal-muster-karten');
+  renderMusterKarten('daytrade-muster-karten');
 
   const chartData = {{ d.chart_json | safe }};
   Plotly.newPlot('chart', chartData.data, chartData.layout, {
