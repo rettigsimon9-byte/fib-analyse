@@ -39,6 +39,22 @@
 
 <div class="container-fluid px-3 pt-3 pb-5">
 
+  <!-- Daten- & Zeitstempel -->
+  <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small text-muted">
+    <span title="Zeitpunkt der letzten verfügbaren Kursdaten">
+      <i class="bi bi-clock-history me-1"></i>Datenstand: <span class="text-light fw-mono">{{ d.datenstand }} Uhr</span>
+    </span>
+    <span title="Zeitpunkt, zu dem diese Analyse erstellt wurde">
+      <i class="bi bi-arrow-repeat me-1"></i>Analyse erstellt: <span class="text-light fw-mono">{{ d.abgerufen }} Uhr</span>
+    </span>
+    {% if d.tagesvol_pct %}
+    <span title="Durchschnittliche tägliche Schwankungsbreite (ADR) der letzten 14 Handelstage">
+      <i class="bi bi-activity me-1"></i>Ø Tagesvolatilität: <span class="text-light fw-mono">{{ '%.2f'|format(d.tagesvol_pct) }} %</span>
+    </span>
+    {% endif %}
+    <span class="text-secondary">· Zeitangaben in MEZ/MESZ</span>
+  </div>
+
   <!-- Header-Zeile -->
   <div class="row g-3 mb-3">
 
@@ -352,6 +368,14 @@
         Stop-Loss bei <strong>{{ '%.2f'|format(dt.stop_loss) }} {{ d.waehrung_symbol }}</strong> nicht vergessen.
       {% endif %}
     </div>
+
+    {% if dt.tagesvol_pct %}
+    <div class="text-muted small mt-1">
+      <i class="bi bi-sliders me-1"></i>
+      Take-Profit & Stop-Loss sind an die Ø Tagesvolatilität ({{ '%.2f'|format(dt.tagesvol_pct) }} %)
+      angepasst und auf ein Mindest-Chance/Risiko-Verhältnis von 2:1 ausgelegt.
+    </div>
+    {% endif %}
     {% else %}
     <div class="text-muted mt-2 small">
       <i class="bi bi-info-circle me-1"></i>

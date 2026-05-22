@@ -5,9 +5,36 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
 import time
+from datetime import datetime, timezone
+
+try:
+    from zoneinfo import ZoneInfo
+    _BERLIN = ZoneInfo('Europe/Berlin')
+except Exception:
+    _BERLIN = None
 
 _fx_cache: dict = {}
 _FX_TTL = 3600  # 1 Stunde
+
+
+def _fmt_zeit(ts) -> str:
+    """Formatiert einen Zeitstempel als 'TT.MM.JJJJ HH:MM' in Europa/Berlin."""
+    try:
+        if getattr(ts, 'tzinfo', None) is None:
+            ts = ts.tz_localize('UTC') if hasattr(ts, 'tz_localize') else ts.replace(tzinfo=timezone.utc)
+        if _BERLIN is not None:
+            ts = ts.tz_convert(_BERLIN) if hasattr(ts, 'tz_convert') else ts.astimezone(_BERLIN)
+        return ts.strftime('%d.%m.%Y %H:%M')
+    except Exception:
+        try:
+            return ts.strftime('%d.%m.%Y %H:%M')
+        except Exception:
+            return str(ts)
+
+
+def _jetzt_berlin() -> str:
+    now = datetime.now(_BERLIN) if _BERLIN is not None else datetime.now()
+    return now.strftime('%d.%m.%Y %H:%M')
 
 
 def hole_eur_kurs(waehrung: str) -> float:
@@ -75,6 +102,15 @@ PERIODEN = {
     '5y':   {'yf': '5y',   'interval': '1wk', 'label': '5 Jahre',       'fenster': 8,  'intraday': False},
 }
 
+# Größere Ersatz-Zeitfenster je Intraday-Intervall. yfinance liefert für
+# period='1d'/5m am Wochenende, an Feiertagen oder vor Börsenstart oft keine
+# oder zu wenige Kerzen – dann wird das nächstgrößere Fenster nachgeladen.
+INTRADAY_FALLBACK = {
+    '5m':  ['5d', '1mo'],
+    '15m': ['1mo', '2mo'],
+    '1h':  ['1mo', '3mo'],
+}
+
 WAEHRUNG_SYMBOLE = {
     'EUR': '€', 'USD': '$', 'GBP': '£', 'CHF': 'CHF',
     'JPY': '¥', 'CAD': 'CA$', 'AUD': 'A$', 'HKD': 'HK$',
@@ -116,12 +152,28 @@ def lade_daten(ticker: str, periode: str = '1y'):
 
         # auto_adjust=False → echte Marktpreise, keine dividendenbereinigten Kurse
         df = tk.history(period=cfg['yf'], interval=cfg['interval'], auto_adjust=False)
-        if df.empty:
-            return None, None, 'USD', f'Kein Ticker "{ticker}" gefunden.'
 
         # MultiIndex bereinigen (tritt bei manchen yfinance-Versionen auf)
-        if isinstance(df.columns, pd.MultiIndex):
+        if df is not None and isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+
+        # Intraday-Fallback: leeres/zu kurzes Fenster mit größerem Zeitraum nachladen
+        if cfg.get('intraday') and (df is None or df.empty or len(df) < 15):
+            for fb in INTRADAY_FALLBACK.get(cfg['interval'], ['5d']):
+                try:
+                    df_fb = tk.history(period=fb, interval=cfg['interval'], auto_adjust=False)
+                except Exception:
+                    continue
+                if df_fb is None or df_fb.empty:
+                    continue
+                if isinstance(df_fb.columns, pd.MultiIndex):
+                    df_fb.columns = df_fb.columns.get_level_values(0)
+                if len(df_fb) >= 15:
+                    df = df_fb
+                    break
+
+        if df is None or df.empty:
+            return None, None, 'USD', f'Kein Ticker "{ticker}" gefunden.'
 
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             if col not in df.columns:
@@ -1089,7 +1141,8 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
                               richtung: str, hoch: float, tief: float,
                               bullisch_pct: float = 50.0, intraday: bool = False,
-                              kerzen_muster: list = None, chart_muster: list = None):
+                              kerzen_muster: list = None, chart_muster: list = None,
+                              tagesvol_pct: float = None):
     rsi      = ind['rsi']
     ema20    = ind['ema20']
     ema50    = ind['ema50']
@@ -1227,32 +1280,54 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     widerspruch = (dt_richtung == 'LONG'  and bullisch_pct < 40) or \
                   (dt_richtung == 'SHORT' and bullisch_pct > 60)
 
-    # ── Preisziele ────────────────────────────────────────────────────────────
-    if dt_richtung == 'LONG':
-        take_profit = naechste_resistance
-        stop_loss   = naechster_support - (atr * 0.5)
-        tp_pct      = (take_profit - aktuell) / aktuell * 100
-        sl_pct      = (aktuell - stop_loss)   / aktuell * 100
+    # ── Preisziele (volatilitätsbasiert mit Fibonacci-Confluence) ──────────────
+    # Ziel-Chance/Risiko-Verhältnis: der Take-Profit muss mindestens das
+    # ZIEL_RR-fache des Stop-Abstands entfernt sein, sonst lohnt der Trade nicht.
+    ZIEL_RR = 2.0
+
+    # Risiko-Einheit: Bei Intraday die durchschnittliche Tagesspanne (ADR) als
+    # Maßstab – die ATR der kleinen Kerzen wäre für Tagesziele zu eng. Sonst
+    # (Swing-Charts) die ATR der Tages-/Wochenkerzen.
+    if intraday and tagesvol_pct:
+        adr_abs   = aktuell * tagesvol_pct / 100.0
+        risk_unit = adr_abs * 0.25          # Stop ~1/4 der Tagesspanne
+        tp_cap    = adr_abs * 0.9           # Ziel realistisch im Tagesrange halten
     else:
-        take_profit = naechster_support
-        stop_loss   = naechste_resistance + (atr * 0.5)
-        tp_pct      = (aktuell - take_profit) / aktuell * 100
-        sl_pct      = (stop_loss - aktuell)   / aktuell * 100
+        adr_abs   = None
+        risk_unit = (atr if atr and atr > 0 else aktuell * 0.005) * 1.2
+        tp_cap    = None
 
-    # Minimaler Stop-Puffer (kein hartes Clipping nach oben)
-    if sl_pct < 0.2:
-        sl_pct = 0.5
-        stop_loss = aktuell * (1 - sl_pct / 100) if dt_richtung == 'LONG' else aktuell * (1 + sl_pct / 100)
+    if dt_richtung == 'LONG':
+        # Stop-Loss unter Support, Distanz auf [0.5 … 1.5]×risk_unit begrenzt
+        fib_sl_dist = max(0.0, aktuell - naechster_support)
+        sl_dist     = max(risk_unit * 0.5, min(fib_sl_dist + risk_unit * 0.3, risk_unit * 1.5))
+        stop_loss   = aktuell - sl_dist
 
-    tp_pct = max(0.01, tp_pct)
+        # Take-Profit: nächster Widerstand, mind. ZIEL_RR × Risiko, im Tagesrange
+        tp_dist = max(naechste_resistance - aktuell, sl_dist * ZIEL_RR)
+        if tp_cap:
+            tp_dist = min(tp_dist, tp_cap)
+        take_profit = aktuell + tp_dist
+    else:
+        fib_sl_dist = max(0.0, naechste_resistance - aktuell)
+        sl_dist     = max(risk_unit * 0.5, min(fib_sl_dist + risk_unit * 0.3, risk_unit * 1.5))
+        stop_loss   = aktuell + sl_dist
+
+        tp_dist = max(aktuell - naechster_support, sl_dist * ZIEL_RR)
+        if tp_cap:
+            tp_dist = min(tp_dist, tp_cap)
+        take_profit = aktuell - tp_dist
+
+    sl_pct = sl_dist / aktuell * 100 if aktuell > 0 else 0.5
+    tp_pct = max(0.01, tp_dist / aktuell * 100 if aktuell > 0 else 0.01)
     rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
 
     # ── Gates ────────────────────────────────────────────────────────────────
     kein_signal = abs(long_score - short_score) <= 1
 
-    # R:R-Gate: nur für Swing-Charts (Intraday Fib-Spannen sind geometrisch
-    # immer eng und symmetrisch → R:R fast immer < 1.5, Gate wäre sinnlos)
-    if not intraday and rr < 2.0:
+    # R:R-Gate für alle Zeitebenen: unter 1.5:1 ist das Verhältnis zu schlecht
+    # (z.B. wenn die Tagesvolatilität kein vernünftiges Ziel mehr zulässt).
+    if rr < 1.5:
         kein_signal = True
 
     # ADX-Gate: kein Signal bei extremem Range-Markt
@@ -1279,6 +1354,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         'long_score':  long_score,
         'widerspruch': widerspruch,
         'short_score': short_score,
+        'tagesvol_pct': round(tagesvol_pct, 2) if tagesvol_pct else None,
     }
 
 # ── Handelssignal Algorithmus ─────────────────────────────────────────────────
@@ -1692,7 +1768,9 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
     waehrung_symbol = WAEHRUNG_SYMBOLE.get(waehrung, waehrung)
 
     # Für Intraday: echten tagesbasierten EMA200 laden (Intraday-EMA200 wäre nur Stunden)
+    # sowie die durchschnittliche Tagesvolatilität (ADR) für realistische Tagesziele.
     ema200_daily = None
+    tagesvol_pct = None
     if intraday:
         try:
             _tk   = yf.Ticker(ticker)
@@ -1710,6 +1788,11 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
                     pass
                 if len(_close_d) >= 10:
                     ema200_daily = round(_close_d.ewm(span=200, adjust=False).mean().iloc[-1], 4)
+                # ADR%: mittlere Tagesspanne (High-Low) relativ zum Close, letzte 14 Tage.
+                # Als Verhältnis währungsunabhängig → keine FX-Umrechnung nötig.
+                _range_pct = ((_df_d['High'] - _df_d['Low']) / _df_d['Close'].replace(0, np.nan) * 100).dropna().tail(14)
+                if len(_range_pct) >= 5:
+                    tagesvol_pct = round(float(_range_pct.mean()), 2)
         except Exception:
             pass
 
@@ -1747,7 +1830,8 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief,
                                              wkeit, intraday,
                                              kerzen_muster=kerzen_muster,
-                                             chart_muster=chart_muster)
+                                             chart_muster=chart_muster,
+                                             tagesvol_pct=tagesvol_pct)
 
         # Chart (nur wenn benötigt)
         if mit_chart:
@@ -1759,6 +1843,10 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         # Tagesveränderung
         change_abs = aktuell - ind['vortag']
         change_pct = change_abs / ind['vortag'] * 100 if ind['vortag'] else 0
+
+        # Zeitstempel: Stand der letzten Kerze + Zeitpunkt dieser Analyse (Europa/Berlin)
+        datenstand = _fmt_zeit(df.index[-1])
+        abgerufen  = _jetzt_berlin()
 
         # Levels für Tabelle aufbereiten (sortiert nach Preis, mit Typ)
         alle_levels = []
@@ -1779,6 +1867,9 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
             'waehrung':        waehrung,
             'waehrung_symbol': waehrung_symbol,
             'periode':         PERIODEN.get(periode, PERIODEN['1y'])['label'],
+            'datenstand':      datenstand,
+            'abgerufen':       abgerufen,
+            'tagesvol_pct':    tagesvol_pct,
             'aktuell':         aktuell,
             'change_abs':      change_abs,
             'change_pct':      change_pct,
