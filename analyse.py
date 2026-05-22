@@ -135,21 +135,23 @@ KERZEN_DEFINITIONEN = {
 }
 
 CHARTMUSTER_DEFINITIONEN = {
-    'double_bottom':        {'richtung': 'bullisch', 'text': 'Double Bottom (Doppelboden) – Umkehrsignal',              'score': +20},
-    'double_top':           {'richtung': 'baerisch', 'text': 'Double Top (Doppeltop) – Umkehrsignal',                  'score': -20},
-    'triple_bottom':        {'richtung': 'bullisch', 'text': 'Triple Bottom (Dreifachboden) – starkes Umkehrsignal',    'score': +24},
-    'triple_top':           {'richtung': 'baerisch', 'text': 'Triple Top (Dreifachhoch) – starkes Umkehrsignal',       'score': -24},
-    'head_shoulders':       {'richtung': 'baerisch', 'text': 'Kopf-Schulter-Formation – Trendumkehr abwärts',          'score': -22},
-    'inv_head_shoulders':   {'richtung': 'bullisch', 'text': 'Invertierte K-S-Formation – Trendumkehr aufwärts',       'score': +22},
-    'bull_flag':            {'richtung': 'bullisch', 'text': 'Bull Flag – Fortsetzung aufwärts',                       'score': +15},
-    'bear_flag':            {'richtung': 'baerisch', 'text': 'Bear Flag – Fortsetzung abwärts',                       'score': -15},
-    'bull_pennant':         {'richtung': 'bullisch', 'text': 'Bullischer Wimpel – Fortsetzung aufwärts',               'score': +14},
-    'bear_pennant':         {'richtung': 'baerisch', 'text': 'Bärischer Wimpel – Fortsetzung abwärts',                'score': -14},
-    'ascending_triangle':   {'richtung': 'bullisch', 'text': 'Aufsteigendes Dreieck – Ausbruch erwartet',             'score': +12},
-    'descending_triangle':  {'richtung': 'baerisch', 'text': 'Absteigendes Dreieck – Ausbruch nach unten',            'score': -12},
-    'symmetrical_triangle': {'richtung': 'neutral',  'text': 'Symmetrisches Dreieck – Ausbruch in beide Richtungen',  'score':   0},
-    'rising_wedge':         {'richtung': 'baerisch', 'text': 'Steigender Keil – bärisches Umkehrmuster',             'score': -14},
-    'falling_wedge':        {'richtung': 'bullisch', 'text': 'Fallender Keil – bullisches Umkehrmuster',             'score': +14},
+    'double_bottom':           {'richtung': 'bullisch', 'text': 'Double Bottom (Doppelboden) – Umkehrsignal',                'score': +20},
+    'double_top':              {'richtung': 'baerisch', 'text': 'Double Top (Doppeltop) – Umkehrsignal',                    'score': -20},
+    'triple_bottom':           {'richtung': 'bullisch', 'text': 'Triple Bottom (Dreifachboden) – starkes Umkehrsignal',      'score': +24},
+    'triple_top':              {'richtung': 'baerisch', 'text': 'Triple Top (Dreifachhoch) – starkes Umkehrsignal',         'score': -24},
+    'head_shoulders':          {'richtung': 'baerisch', 'text': 'Kopf-Schulter-Formation – Trendumkehr abwärts',            'score': -22},
+    'inv_head_shoulders':      {'richtung': 'bullisch', 'text': 'Invertierte K-S-Formation – Trendumkehr aufwärts',         'score': +22},
+    'bull_flag':               {'richtung': 'bullisch', 'text': 'Bull Flag – Fortsetzung aufwärts',                         'score': +15},
+    'bear_flag':               {'richtung': 'baerisch', 'text': 'Bear Flag – Fortsetzung abwärts',                         'score': -15},
+    'bull_pennant':            {'richtung': 'bullisch', 'text': 'Bullischer Wimpel – Fortsetzung aufwärts',                 'score': +14},
+    'bear_pennant':            {'richtung': 'baerisch', 'text': 'Bärischer Wimpel – Fortsetzung abwärts',                  'score': -14},
+    'ascending_triangle':      {'richtung': 'bullisch', 'text': 'Aufsteigendes Dreieck – Ausbruch erwartet',               'score': +12},
+    'descending_triangle':     {'richtung': 'baerisch', 'text': 'Absteigendes Dreieck – Ausbruch nach unten',              'score': -12},
+    'symmetrical_triangle':    {'richtung': 'neutral',  'text': 'Symmetrisches Dreieck – Ausbruch in beide Richtungen',    'score':   0},
+    'rising_wedge':            {'richtung': 'baerisch', 'text': 'Steigender Keil – bärisches Umkehrmuster',               'score': -14},
+    'falling_wedge':           {'richtung': 'bullisch', 'text': 'Fallender Keil – bullisches Umkehrmuster',               'score': +14},
+    'bull_expanding_triangle': {'richtung': 'bullisch', 'text': 'Bullisches Erweiterungsdreieck – Ausbruch aufwärts',      'score': +10},
+    'bear_expanding_triangle': {'richtung': 'baerisch', 'text': 'Bärisches Erweiterungsdreieck – Ausbruch abwärts',       'score': -10},
 }
 
 # ── Datenabruf ────────────────────────────────────────────────────────────────
@@ -1113,12 +1115,12 @@ def erkenne_kerzenformation(df: pd.DataFrame) -> list:
 # ── Chart-Muster Erkennung ────────────────────────────────────────────────────
 
 def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
-    """Erkennt übergeordnete Chart-Muster (15 Muster-Typen)."""
+    """Erkennt übergeordnete Chart-Muster (17 Muster-Typen, Dominanz-Filter)."""
     if len(df) < 30:
         return []
 
     n     = len(df)
-    lb    = min(60, n - 1)
+    lb    = min(100, n - 1)   # mehr History für aussagekräftigere Muster
     h_arr = df['High'].values[-lb:]
     l_arr = df['Low'].values[-lb:]
     c_arr = df['Close'].values[-lb:]
@@ -1143,7 +1145,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
     if len(l_idx) >= 2:
         t1_i, t2_i = l_idx[-2], l_idx[-1]
         t1, t2 = l_arr[t1_i], l_arr[t2_i]
-        if (t2_i > t1_i + 4 and
+        if (t2_i > t1_i + 5 and
                 abs(t1 - t2) / max(t1, 1e-9) < 0.04):
             peak = max(h_arr[t1_i: t2_i + 1])
             if (peak - min(t1, t2)) / max(peak, 1e-9) > 0.03:
@@ -1154,7 +1156,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         t1_i, t2_i, t3_i = l_idx[-3], l_idx[-2], l_idx[-1]
         t1, t2, t3 = l_arr[t1_i], l_arr[t2_i], l_arr[t3_i]
         t_mean = (t1 + t2 + t3) / 3
-        if (t3_i > t1_i + 6 and
+        if (t3_i > t1_i + 8 and
                 max(abs(t1 - t_mean), abs(t2 - t_mean), abs(t3 - t_mean)) / max(t_mean, 1e-9) < 0.04):
             muster_meta = [(nm, s) for nm, s in muster_meta if nm != 'double_bottom']
             muster_meta.append(('triple_bottom', t1_i))
@@ -1163,7 +1165,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
     if len(h_idx) >= 2:
         p1_i, p2_i = h_idx[-2], h_idx[-1]
         p1, p2 = h_arr[p1_i], h_arr[p2_i]
-        if (p2_i > p1_i + 4 and
+        if (p2_i > p1_i + 5 and
                 abs(p1 - p2) / max(p1, 1e-9) < 0.04):
             trough = min(l_arr[p1_i: p2_i + 1])
             if (max(p1, p2) - trough) / max(max(p1, p2), 1e-9) > 0.03:
@@ -1174,7 +1176,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         p1_i, p2_i, p3_i = h_idx[-3], h_idx[-2], h_idx[-1]
         p1, p2, p3 = h_arr[p1_i], h_arr[p2_i], h_arr[p3_i]
         p_mean = (p1 + p2 + p3) / 3
-        if (p3_i > p1_i + 6 and
+        if (p3_i > p1_i + 8 and
                 max(abs(p1 - p_mean), abs(p2 - p_mean), abs(p3 - p_mean)) / max(p_mean, 1e-9) < 0.04):
             muster_meta = [(nm, s) for nm, s in muster_meta if nm != 'double_top']
             muster_meta.append(('triple_top', p1_i))
@@ -1185,7 +1187,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         ls, hd, rs = h_arr[ls_i], h_arr[hd_i], h_arr[rs_i]
         if (hd > ls * 1.03 and hd > rs * 1.03 and
                 abs(ls - rs) / max(ls, 1e-9) < 0.07 and
-                rs_i > hd_i + 3 and hd_i > ls_i + 3):
+                rs_i > hd_i + 4 and hd_i > ls_i + 4):
             nl_l     = min(l_arr[ls_i: hd_i + 1])
             nl_r     = min(l_arr[hd_i: rs_i + 1])
             neckline = (nl_l + nl_r) / 2
@@ -1198,7 +1200,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         ls, hd, rs = l_arr[ls_i], l_arr[hd_i], l_arr[rs_i]
         if (hd < ls * 0.97 and hd < rs * 0.97 and
                 abs(ls - rs) / max(ls, 1e-9) < 0.07 and
-                rs_i > hd_i + 3 and hd_i > ls_i + 3):
+                rs_i > hd_i + 4 and hd_i > ls_i + 4):
             nl_l     = max(h_arr[ls_i: hd_i + 1])
             nl_r     = max(h_arr[hd_i: rs_i + 1])
             neckline = (nl_l + nl_r) / 2
@@ -1206,13 +1208,13 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
                 muster_meta.append(('inv_head_shoulders', ls_i))
 
     # H&S gegenseitig ausschließend
-    has_hs  = any(nm == 'head_shoulders'   for nm, _ in muster_meta)
+    has_hs  = any(nm == 'head_shoulders'     for nm, _ in muster_meta)
     has_ihs = any(nm == 'inv_head_shoulders' for nm, _ in muster_meta)
     if has_hs and has_ihs:
         muster_meta = [(nm, s) for nm, s in muster_meta
                        if nm not in ('head_shoulders', 'inv_head_shoulders')]
 
-    # ── Bull Flag / Bull Pennant / Bear Flag / Bear Pennant ───────────────────
+    # ── Flag / Pennant ────────────────────────────────────────────────────────
     if lb_n >= 20:
         split  = lb_n // 3
         flag_h = h_arr[split:]
@@ -1228,8 +1230,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             fl_sl    = np.polyfit(x, flag_l, 1)[0] / fl_mean * 100
             fc_sl    = np.polyfit(x, flag_c, 1)[0] / fc_mean * 100
             flag_rng = (max(flag_c) - min(flag_c)) / fc_mean * 100
-            # Wimpel-Form: Hochs fallen, Tiefs steigen (konvergierend)
-            pennant  = fh_sl < -0.15 and fl_sl > 0.15
+            pennant  = fh_sl < -0.15 and fl_sl > 0.15  # konvergierende Consolidation
 
             bull_pole = (c_arr[split] - c_arr[0]) / max(abs(c_arr[0]), 1e-9) * 100
             bear_pole = (c_arr[0] - c_arr[split]) / max(abs(c_arr[0]), 1e-9) * 100
@@ -1245,12 +1246,13 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
                 elif -0.5 < fc_sl < 4:
                     muster_meta.append(('bear_flag', 0))
 
-    # ── Dreiecke & Keile — alle gegenseitig ausschließend (nur einer gewinnt) ─
+    # ── Dreiecke, Keile & Erweiterungsdreiecke — gegenseitig ausschließend ────
     tri_name  = None
     tri_start = 0
     if len(h_idx) >= 2 and len(l_idx) >= 2:
-        rec_h_idx = h_idx[-3:] if len(h_idx) >= 3 else h_idx[-2:]
-        rec_l_idx = l_idx[-3:] if len(l_idx) >= 3 else l_idx[-2:]
+        # Mindestens 3 Swing-Punkte pro Seite für zuverlässigere Erkennung
+        rec_h_idx = h_idx[-4:] if len(h_idx) >= 4 else h_idx[-3:] if len(h_idx) >= 3 else h_idx[-2:]
+        rec_l_idx = l_idx[-4:] if len(l_idx) >= 4 else l_idx[-3:] if len(l_idx) >= 3 else l_idx[-2:]
         rec_h  = [h_arr[i] for i in rec_h_idx]
         rec_l  = [l_arr[i] for i in rec_l_idx]
         h_mean = max(np.mean(rec_h), 1e-9)
@@ -1262,18 +1264,66 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         tri_start = min(rec_h_idx[0], rec_l_idx[0])
 
         if h_cv < 1.5 and l_sl > 0:
-            tri_name = 'ascending_triangle'       # flache Hochs, steigende Tiefs
+            tri_name = 'ascending_triangle'          # flache Hochs, steigende Tiefs
         elif l_cv < 1.5 and h_sl < 0:
-            tri_name = 'descending_triangle'      # fallende Hochs, flache Tiefs
+            tri_name = 'descending_triangle'         # fallende Hochs, flache Tiefs
         elif h_sl > 0.1 and l_sl > 0.1 and l_sl > h_sl * 1.2:
-            tri_name = 'rising_wedge'             # beide steigen, Tiefs schneller
+            tri_name = 'rising_wedge'                # beide steigen, Tiefs schneller → Keil
         elif h_sl < -0.1 and l_sl < -0.1 and h_sl < l_sl * 1.2:
-            tri_name = 'falling_wedge'            # beide fallen, Hochs schneller
+            tri_name = 'falling_wedge'               # beide fallen, Hochs schneller → Keil
         elif h_sl < -0.1 and l_sl > 0.1:
-            tri_name = 'symmetrical_triangle'     # Hochs fallen, Tiefs steigen
+            tri_name = 'symmetrical_triangle'        # Hochs fallen + Tiefs steigen = konvergierend
+        elif h_sl > 0.1 and l_sl < -0.1:
+            # Erweiterungsdreieck: Hochs steigen + Tiefs fallen = divergierend
+            t_high = max(h_arr[tri_start:])
+            t_low  = min(l_arr[tri_start:])
+            t_mid  = (t_high + t_low) / 2
+            # Preisposition im Dreieck bestimmt Richtung
+            tri_name = ('bear_expanding_triangle' if c_arr[-1] > t_mid
+                        else 'bull_expanding_triangle')
 
     if tri_name:
         muster_meta.append((tri_name, tri_start))
+
+    # ── Dominanz-Filter: nur konsistente, nicht-widersprüchliche Ausgabe ──────
+    # Maximal ein Muster pro Gruppe; bullische + bärische Reversals schließen sich aus
+    _REV_BULL  = {'triple_bottom', 'double_bottom', 'inv_head_shoulders',
+                  'falling_wedge', 'bull_expanding_triangle'}
+    _REV_BEAR  = {'triple_top', 'double_top', 'head_shoulders',
+                  'rising_wedge', 'bear_expanding_triangle'}
+    _CONT_BULL = {'bull_flag', 'bull_pennant', 'ascending_triangle'}
+    _CONT_BEAR = {'bear_flag', 'bear_pennant', 'descending_triangle'}
+    _NEUTRAL   = {'symmetrical_triangle'}
+
+    def _bestes(gruppe):
+        kandidaten = [(nm, s) for nm, s in muster_meta if nm in gruppe]
+        if not kandidaten:
+            return None
+        return max(kandidaten, key=lambda x: abs(CHARTMUSTER_DEFINITIONEN[x[0]]['score']))
+
+    rev_bull  = _bestes(_REV_BULL)
+    rev_bear  = _bestes(_REV_BEAR)
+    cont_bull = _bestes(_CONT_BULL)
+    cont_bear = _bestes(_CONT_BEAR)
+    neutral   = next(((nm, s) for nm, s in muster_meta if nm in _NEUTRAL), None)
+
+    # Gegensätzliche Reversals: nur das stärkere behalten
+    if rev_bull and rev_bear:
+        sb = CHARTMUSTER_DEFINITIONEN[rev_bull[0]]['score']
+        se = abs(CHARTMUSTER_DEFINITIONEN[rev_bear[0]]['score'])
+        if sb >= se:
+            rev_bear = None
+        else:
+            rev_bull = None
+
+    # Continuation darf dem Reversal nicht widersprechen
+    if rev_bull:
+        cont_bear = None
+    if rev_bear:
+        cont_bull = None
+
+    muster_meta = [x for x in [rev_bull, rev_bear, cont_bull, cont_bear, neutral]
+                   if x is not None]
 
     # ── Zeitstempel berechnen und Ergebnis aufbauen ───────────────────────────
     result = []
