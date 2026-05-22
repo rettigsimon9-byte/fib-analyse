@@ -135,12 +135,21 @@ KERZEN_DEFINITIONEN = {
 }
 
 CHARTMUSTER_DEFINITIONEN = {
-    'double_bottom':        {'richtung': 'bullisch', 'text': 'Double Bottom (Doppelboden) – Umkehrsignal',    'score': +20},
-    'double_top':           {'richtung': 'baerisch', 'text': 'Double Top (Doppeltop) – Umkehrsignal',        'score': -20},
-    'bull_flag':            {'richtung': 'bullisch', 'text': 'Bull Flag – Fortsetzung aufwärts',              'score': +15},
-    'bear_flag':            {'richtung': 'baerisch', 'text': 'Bear Flag – Fortsetzung abwärts',              'score': -15},
-    'ascending_triangle':   {'richtung': 'bullisch', 'text': 'Aufsteigendes Dreieck – Ausbruch erwartet',    'score': +12},
-    'descending_triangle':  {'richtung': 'baerisch', 'text': 'Absteigendes Dreieck – Ausbruch nach unten',   'score': -12},
+    'double_bottom':        {'richtung': 'bullisch', 'text': 'Double Bottom (Doppelboden) – Umkehrsignal',              'score': +20},
+    'double_top':           {'richtung': 'baerisch', 'text': 'Double Top (Doppeltop) – Umkehrsignal',                  'score': -20},
+    'triple_bottom':        {'richtung': 'bullisch', 'text': 'Triple Bottom (Dreifachboden) – starkes Umkehrsignal',    'score': +24},
+    'triple_top':           {'richtung': 'baerisch', 'text': 'Triple Top (Dreifachhoch) – starkes Umkehrsignal',       'score': -24},
+    'head_shoulders':       {'richtung': 'baerisch', 'text': 'Kopf-Schulter-Formation – Trendumkehr abwärts',          'score': -22},
+    'inv_head_shoulders':   {'richtung': 'bullisch', 'text': 'Invertierte K-S-Formation – Trendumkehr aufwärts',       'score': +22},
+    'bull_flag':            {'richtung': 'bullisch', 'text': 'Bull Flag – Fortsetzung aufwärts',                       'score': +15},
+    'bear_flag':            {'richtung': 'baerisch', 'text': 'Bear Flag – Fortsetzung abwärts',                       'score': -15},
+    'bull_pennant':         {'richtung': 'bullisch', 'text': 'Bullischer Wimpel – Fortsetzung aufwärts',               'score': +14},
+    'bear_pennant':         {'richtung': 'baerisch', 'text': 'Bärischer Wimpel – Fortsetzung abwärts',                'score': -14},
+    'ascending_triangle':   {'richtung': 'bullisch', 'text': 'Aufsteigendes Dreieck – Ausbruch erwartet',             'score': +12},
+    'descending_triangle':  {'richtung': 'baerisch', 'text': 'Absteigendes Dreieck – Ausbruch nach unten',            'score': -12},
+    'symmetrical_triangle': {'richtung': 'neutral',  'text': 'Symmetrisches Dreieck – Ausbruch in beide Richtungen',  'score':   0},
+    'rising_wedge':         {'richtung': 'baerisch', 'text': 'Steigender Keil – bärisches Umkehrmuster',             'score': -14},
+    'falling_wedge':        {'richtung': 'bullisch', 'text': 'Fallender Keil – bullisches Umkehrmuster',             'score': +14},
 }
 
 # ── Datenabruf ────────────────────────────────────────────────────────────────
@@ -1104,12 +1113,12 @@ def erkenne_kerzenformation(df: pd.DataFrame) -> list:
 # ── Chart-Muster Erkennung ────────────────────────────────────────────────────
 
 def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
-    """Erkennt übergeordnete Chart-Muster (Double Top/Bottom, Flags, Dreiecke)."""
+    """Erkennt übergeordnete Chart-Muster (15 Muster-Typen)."""
     if len(df) < 30:
         return []
 
-    n    = len(df)
-    lb   = min(60, n - 1)
+    n     = len(df)
+    lb    = min(60, n - 1)
     h_arr = df['High'].values[-lb:]
     l_arr = df['Low'].values[-lb:]
     c_arr = df['Close'].values[-lb:]
@@ -1140,6 +1149,16 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             if (peak - min(t1, t2)) / max(peak, 1e-9) > 0.03:
                 muster_meta.append(('double_bottom', t1_i))
 
+    # ── Triple Bottom (ersetzt Double Bottom wenn erkannt) ───────────────────
+    if len(l_idx) >= 3:
+        t1_i, t2_i, t3_i = l_idx[-3], l_idx[-2], l_idx[-1]
+        t1, t2, t3 = l_arr[t1_i], l_arr[t2_i], l_arr[t3_i]
+        t_mean = (t1 + t2 + t3) / 3
+        if (t3_i > t1_i + 6 and
+                max(abs(t1 - t_mean), abs(t2 - t_mean), abs(t3 - t_mean)) / max(t_mean, 1e-9) < 0.04):
+            muster_meta = [(nm, s) for nm, s in muster_meta if nm != 'double_bottom']
+            muster_meta.append(('triple_bottom', t1_i))
+
     # ── Double Top ────────────────────────────────────────────────────────────
     if len(h_idx) >= 2:
         p1_i, p2_i = h_idx[-2], h_idx[-1]
@@ -1150,66 +1169,118 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             if (max(p1, p2) - trough) / max(max(p1, p2), 1e-9) > 0.03:
                 muster_meta.append(('double_top', p1_i))
 
-    # ── Bull Flag ─────────────────────────────────────────────────────────────
-    if lb_n >= 20:
-        split     = lb_n // 3
-        pole_move = (c_arr[split] - c_arr[0]) / max(abs(c_arr[0]), 1e-9) * 100
-        flag_arr  = c_arr[split:]
-        flag_rng  = (max(flag_arr) - min(flag_arr)) / max(abs(np.mean(flag_arr)), 1e-9) * 100
-        if len(flag_arr) >= 5 and pole_move > 5 and flag_rng < pole_move * 0.6:
-            x = np.arange(len(flag_arr))
-            slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
-            if -4 < slope_pct < 0.5:
-                muster_meta.append(('bull_flag', 0))
+    # ── Triple Top (ersetzt Double Top wenn erkannt) ──────────────────────────
+    if len(h_idx) >= 3:
+        p1_i, p2_i, p3_i = h_idx[-3], h_idx[-2], h_idx[-1]
+        p1, p2, p3 = h_arr[p1_i], h_arr[p2_i], h_arr[p3_i]
+        p_mean = (p1 + p2 + p3) / 3
+        if (p3_i > p1_i + 6 and
+                max(abs(p1 - p_mean), abs(p2 - p_mean), abs(p3 - p_mean)) / max(p_mean, 1e-9) < 0.04):
+            muster_meta = [(nm, s) for nm, s in muster_meta if nm != 'double_top']
+            muster_meta.append(('triple_top', p1_i))
 
-    # ── Bear Flag ─────────────────────────────────────────────────────────────
-    if lb_n >= 20:
-        split     = lb_n // 3
-        pole_move = (c_arr[0] - c_arr[split]) / max(abs(c_arr[0]), 1e-9) * 100
-        flag_arr  = c_arr[split:]
-        flag_rng  = (max(flag_arr) - min(flag_arr)) / max(abs(np.mean(flag_arr)), 1e-9) * 100
-        if len(flag_arr) >= 5 and pole_move > 5 and flag_rng < pole_move * 0.6:
-            x = np.arange(len(flag_arr))
-            slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
-            if -0.5 < slope_pct < 4:
-                muster_meta.append(('bear_flag', 0))
+    # ── Kopf-Schulter (bärisch) ───────────────────────────────────────────────
+    if len(h_idx) >= 3:
+        ls_i, hd_i, rs_i = h_idx[-3], h_idx[-2], h_idx[-1]
+        ls, hd, rs = h_arr[ls_i], h_arr[hd_i], h_arr[rs_i]
+        if (hd > ls * 1.03 and hd > rs * 1.03 and
+                abs(ls - rs) / max(ls, 1e-9) < 0.07 and
+                rs_i > hd_i + 3 and hd_i > ls_i + 3):
+            nl_l     = min(l_arr[ls_i: hd_i + 1])
+            nl_r     = min(l_arr[hd_i: rs_i + 1])
+            neckline = (nl_l + nl_r) / 2
+            if c_arr[-1] <= neckline * 1.03:
+                muster_meta.append(('head_shoulders', ls_i))
 
-    # ── Dreiecke — gegenseitig ausschließend ──────────────────────────────────
-    asc_detected = desc_detected = False
-    asc_start = desc_start = 0
+    # ── Invertierter Kopf-Schulter (bullisch) ─────────────────────────────────
+    if len(l_idx) >= 3:
+        ls_i, hd_i, rs_i = l_idx[-3], l_idx[-2], l_idx[-1]
+        ls, hd, rs = l_arr[ls_i], l_arr[hd_i], l_arr[rs_i]
+        if (hd < ls * 0.97 and hd < rs * 0.97 and
+                abs(ls - rs) / max(ls, 1e-9) < 0.07 and
+                rs_i > hd_i + 3 and hd_i > ls_i + 3):
+            nl_l     = max(h_arr[ls_i: hd_i + 1])
+            nl_r     = max(h_arr[hd_i: rs_i + 1])
+            neckline = (nl_l + nl_r) / 2
+            if c_arr[-1] >= neckline * 0.97:
+                muster_meta.append(('inv_head_shoulders', ls_i))
+
+    # H&S gegenseitig ausschließend
+    has_hs  = any(nm == 'head_shoulders'   for nm, _ in muster_meta)
+    has_ihs = any(nm == 'inv_head_shoulders' for nm, _ in muster_meta)
+    if has_hs and has_ihs:
+        muster_meta = [(nm, s) for nm, s in muster_meta
+                       if nm not in ('head_shoulders', 'inv_head_shoulders')]
+
+    # ── Bull Flag / Bull Pennant / Bear Flag / Bear Pennant ───────────────────
+    if lb_n >= 20:
+        split  = lb_n // 3
+        flag_h = h_arr[split:]
+        flag_l = l_arr[split:]
+        flag_c = c_arr[split:]
+
+        if len(flag_c) >= 5:
+            x        = np.arange(len(flag_c))
+            fh_mean  = max(abs(np.mean(flag_h)), 1e-9)
+            fl_mean  = max(abs(np.mean(flag_l)), 1e-9)
+            fc_mean  = max(abs(np.mean(flag_c)), 1e-9)
+            fh_sl    = np.polyfit(x, flag_h, 1)[0] / fh_mean * 100
+            fl_sl    = np.polyfit(x, flag_l, 1)[0] / fl_mean * 100
+            fc_sl    = np.polyfit(x, flag_c, 1)[0] / fc_mean * 100
+            flag_rng = (max(flag_c) - min(flag_c)) / fc_mean * 100
+            # Wimpel-Form: Hochs fallen, Tiefs steigen (konvergierend)
+            pennant  = fh_sl < -0.15 and fl_sl > 0.15
+
+            bull_pole = (c_arr[split] - c_arr[0]) / max(abs(c_arr[0]), 1e-9) * 100
+            bear_pole = (c_arr[0] - c_arr[split]) / max(abs(c_arr[0]), 1e-9) * 100
+
+            if bull_pole > 5 and flag_rng < bull_pole * 0.6:
+                if pennant:
+                    muster_meta.append(('bull_pennant', split))
+                elif -4 < fc_sl < 0.5:
+                    muster_meta.append(('bull_flag', 0))
+            elif bear_pole > 5 and flag_rng < bear_pole * 0.6:
+                if pennant:
+                    muster_meta.append(('bear_pennant', split))
+                elif -0.5 < fc_sl < 4:
+                    muster_meta.append(('bear_flag', 0))
+
+    # ── Dreiecke & Keile — alle gegenseitig ausschließend (nur einer gewinnt) ─
+    tri_name  = None
+    tri_start = 0
     if len(h_idx) >= 2 and len(l_idx) >= 2:
-        rec_h_idx = h_idx[-3:]
-        rec_l_idx = l_idx[-3:]
-        rec_h = [h_arr[i] for i in rec_h_idx]
-        rec_l = [l_arr[i] for i in rec_l_idx]
-        if len(rec_h) >= 2 and len(rec_l) >= 2:
-            h_cv  = np.std(rec_h) / max(np.mean(rec_h), 1e-9) * 100
-            l_sl  = np.polyfit(range(len(rec_l)), rec_l, 1)[0]
-            l_cv  = np.std(rec_l) / max(np.mean(rec_l), 1e-9) * 100
-            h_sl  = np.polyfit(range(len(rec_h)), rec_h, 1)[0]
-            tri_start = min(rec_h_idx[0], rec_l_idx[0])
+        rec_h_idx = h_idx[-3:] if len(h_idx) >= 3 else h_idx[-2:]
+        rec_l_idx = l_idx[-3:] if len(l_idx) >= 3 else l_idx[-2:]
+        rec_h  = [h_arr[i] for i in rec_h_idx]
+        rec_l  = [l_arr[i] for i in rec_l_idx]
+        h_mean = max(np.mean(rec_h), 1e-9)
+        l_mean = max(np.mean(rec_l), 1e-9)
+        h_cv   = np.std(rec_h) / h_mean * 100
+        l_cv   = np.std(rec_l) / l_mean * 100
+        h_sl   = np.polyfit(range(len(rec_h)), rec_h, 1)[0] / h_mean * 100
+        l_sl   = np.polyfit(range(len(rec_l)), rec_l, 1)[0] / l_mean * 100
+        tri_start = min(rec_h_idx[0], rec_l_idx[0])
 
-            if h_cv < 1.5 and l_sl > 0:
-                asc_detected = True
-                asc_start    = tri_start
-            if l_cv < 1.5 and h_sl < 0:
-                desc_detected = True
-                desc_start    = tri_start
+        if h_cv < 1.5 and l_sl > 0:
+            tri_name = 'ascending_triangle'       # flache Hochs, steigende Tiefs
+        elif l_cv < 1.5 and h_sl < 0:
+            tri_name = 'descending_triangle'      # fallende Hochs, flache Tiefs
+        elif h_sl > 0.1 and l_sl > 0.1 and l_sl > h_sl * 1.2:
+            tri_name = 'rising_wedge'             # beide steigen, Tiefs schneller
+        elif h_sl < -0.1 and l_sl < -0.1 and h_sl < l_sl * 1.2:
+            tri_name = 'falling_wedge'            # beide fallen, Hochs schneller
+        elif h_sl < -0.1 and l_sl > 0.1:
+            tri_name = 'symmetrical_triangle'     # Hochs fallen, Tiefs steigen
 
-    # Beide gleichzeitig → widersprüchlich → beide verwerfen
-    if asc_detected and not desc_detected:
-        muster_meta.append(('ascending_triangle', asc_start))
-    elif desc_detected and not asc_detected:
-        muster_meta.append(('descending_triangle', desc_start))
-    # Bei beiden: kein Dreieck ausgegeben (kein klares Signal)
+    if tri_name:
+        muster_meta.append((tri_name, tri_start))
 
     # ── Zeitstempel berechnen und Ergebnis aufbauen ───────────────────────────
     result = []
     for name, start_arr_idx in muster_meta:
         if name not in CHARTMUSTER_DEFINITIONEN:
             continue
-        # Umrechnung: Index im Lookback-Array → negativer df-Index
-        df_start_idx = start_arr_idx - lb_n  # z.B. -60, -30 etc.
+        df_start_idx = start_arr_idx - lb_n  # negativer Index in df
         eintrag = {
             'name':       name,
             **CHARTMUSTER_DEFINITIONEN[name],

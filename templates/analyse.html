@@ -770,6 +770,51 @@
       <rect x="55" y="10" width="14" height="28" fill="#ef4444"/>
       <line x1="22" y1="10" x2="78" y2="10" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,3"/>
     </svg>`,
+
+    // ── Chart-Muster (neu) ──
+    triple_bottom: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,14 14,52 24,22 36,52 46,22 58,52 70,14 98,14" stroke="#22c55e" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+      <line x1="2" y1="22" x2="98" y2="22" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+    </svg>`,
+    triple_top: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,46 14,8 24,38 36,8 46,38 58,8 70,46 98,46" stroke="#ef4444" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+      <line x1="2" y1="38" x2="98" y2="38" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+    </svg>`,
+    head_shoulders: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,50 12,26 22,42 36,8 50,42 62,26 74,44 92,56" stroke="#ef4444" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+      <line x1="2" y1="42" x2="74" y2="42" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+    </svg>`,
+    inv_head_shoulders: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="2,10 12,34 22,18 36,52 50,18 62,34 74,16 92,4" stroke="#22c55e" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
+      <line x1="2" y1="18" x2="74" y2="18" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+    </svg>`,
+    rising_wedge: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="4" y1="42" x2="72" y2="12" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <line x1="4" y1="56" x2="72" y2="18" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <polyline points="72,15 88,42" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
+    falling_wedge: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="4" y1="6" x2="72" y2="44" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <line x1="4" y1="20" x2="72" y2="48" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <polyline points="72,46 88,18" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
+    symmetrical_triangle: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="4" y1="8" x2="80" y2="30" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,3"/>
+      <line x1="4" y1="52" x2="80" y2="30" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,3"/>
+      <polyline points="10,48 22,14 34,42 46,20 58,36 68,24 78,30" stroke="#f59e0b" stroke-width="1.6" fill="none" stroke-linejoin="round"/>
+    </svg>`,
+    bull_pennant: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="56" x2="36" y2="10" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="36" y1="10" x2="74" y2="19" stroke="#22c55e" stroke-width="1.5"/>
+      <line x1="36" y1="24" x2="74" y2="19" stroke="#22c55e" stroke-width="1.5"/>
+      <polyline points="74,19 90,4" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
+    bear_pennant: `<svg viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="4" x2="36" y2="50" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="36" y1="36" x2="74" y2="43" stroke="#ef4444" stroke-width="1.5"/>
+      <line x1="36" y1="50" x2="74" y2="43" stroke="#ef4444" stroke-width="1.5"/>
+      <polyline points="74,43 90,56" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>`,
   };
 
   function renderMusterKarten(containerId) {
