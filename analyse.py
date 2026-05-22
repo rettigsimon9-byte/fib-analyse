@@ -81,6 +81,32 @@ WAEHRUNG_SYMBOLE = {
     'CNY': '¥', 'SEK': 'kr', 'NOK': 'kr', 'DKK': 'kr',
 }
 
+KERZEN_DEFINITIONEN = {
+    'hammer':               {'richtung': 'bullisch', 'text': 'Hammer – bullisches Umkehrsignal',            'score': +12},
+    'inverted_hammer':      {'richtung': 'bullisch', 'text': 'Invertierter Hammer – mögliche Wende aufwärts','score': +8},
+    'bullisches_engulfing': {'richtung': 'bullisch', 'text': 'Bullisches Engulfing – starkes Kaufsignal',    'score': +15},
+    'morgenstern':          {'richtung': 'bullisch', 'text': 'Morgenstern – bullische Trendwende',            'score': +18},
+    'bullischer_marubozu':  {'richtung': 'bullisch', 'text': 'Bullischer Marubozu – starkes Momentum',       'score': +10},
+    'tweezer_bottom':       {'richtung': 'bullisch', 'text': 'Tweezer Bottom – Bodenbildung',                'score': +10},
+    'shooting_star':        {'richtung': 'baerisch', 'text': 'Shooting Star – bärisches Umkehrsignal',       'score': -12},
+    'hanging_man':          {'richtung': 'baerisch', 'text': 'Hanging Man – Trendumkehr-Warnung',            'score': -10},
+    'baerisches_engulfing': {'richtung': 'baerisch', 'text': 'Bärisches Engulfing – starker Verkaufsdruck',  'score': -14},
+    'abendstern':           {'richtung': 'baerisch', 'text': 'Abendstern – bärische Trendwende',             'score': -18},
+    'baerischer_marubozu':  {'richtung': 'baerisch', 'text': 'Bärischer Marubozu – starker Abwärtsdruck',    'score': -10},
+    'tweezer_top':          {'richtung': 'baerisch', 'text': 'Tweezer Top – Topbildung',                     'score': -10},
+    'doji':                 {'richtung': 'neutral',  'text': 'Doji – Unentschlossenheit am Markt',           'score': 0},
+    'spinning_top':         {'richtung': 'neutral',  'text': 'Spinning Top – Unentschlossenheit',            'score': 0},
+}
+
+CHARTMUSTER_DEFINITIONEN = {
+    'double_bottom':        {'richtung': 'bullisch', 'text': 'Double Bottom (Doppelboden) – Umkehrsignal',    'score': +20},
+    'double_top':           {'richtung': 'baerisch', 'text': 'Double Top (Doppeltop) – Umkehrsignal',        'score': -20},
+    'bull_flag':            {'richtung': 'bullisch', 'text': 'Bull Flag – Fortsetzung aufwärts',              'score': +15},
+    'bear_flag':            {'richtung': 'baerisch', 'text': 'Bear Flag – Fortsetzung abwärts',              'score': -15},
+    'ascending_triangle':   {'richtung': 'bullisch', 'text': 'Aufsteigendes Dreieck – Ausbruch erwartet',    'score': +12},
+    'descending_triangle':  {'richtung': 'baerisch', 'text': 'Absteigendes Dreieck – Ausbruch nach unten',   'score': -12},
+}
+
 # ── Datenabruf ────────────────────────────────────────────────────────────────
 
 def lade_daten(ticker: str, periode: str = '1y'):
@@ -861,59 +887,209 @@ def erkenne_rsi_divergenz(df: pd.DataFrame, fenster: int = 14, lookback: int = 4
 
 # ── Kerzenformationen Erkennung ───────────────────────────────────────────────
 
-def erkenne_kerzenformation(df: pd.DataFrame):
+def erkenne_kerzenformation(df: pd.DataFrame) -> list:
+    """Erkennt Candlestick-Formationen der letzten Kerzen. Gibt Liste von Dicts zurück."""
     if len(df) < 3:
-        return None
+        return []
 
-    c1 = df.iloc[-3]  # vorvorletzte Kerze
-    c2 = df.iloc[-2]  # vorletzte Kerze
-    c3 = df.iloc[-1]  # letzte Kerze
+    muster = []
+    c1 = df.iloc[-3]
+    c2 = df.iloc[-2]
+    c3 = df.iloc[-1]
 
-    o, h, l, c = c3['Open'], c3['High'], c3['Low'], c3['Close']
-    body         = abs(c - o)
-    gesamtrange  = h - l
-    if gesamtrange < 1e-9:
-        return None
-    upper_wick   = h - max(c, o)
-    lower_wick   = min(c, o) - l
+    o3, h3, l3, c3v = c3['Open'], c3['High'], c3['Low'], c3['Close']
+    body3        = abs(c3v - o3)
+    gesamtrange3 = h3 - l3
+    if gesamtrange3 < 1e-9:
+        return []
+    upper_wick3 = h3 - max(c3v, o3)
+    lower_wick3 = min(c3v, o3) - l3
+    bull3 = c3v >= o3
 
-    # Hammer: kleiner Körper oben, langer unterer Schatten (bullisch)
-    if (lower_wick >= body * 2.0 and
-            upper_wick <= body * 0.5 and
-            body / gesamtrange <= 0.35):
-        return 'hammer'
+    o2, h2, l2, c2v = c2['Open'], c2['High'], c2['Low'], c2['Close']
+    body2 = abs(c2v - o2)
+    bull2 = c2v >= o2
 
-    # Bullisches Engulfing: letzte Kerze umschließt vorherige rote Kerze
-    if (c > o and c2['Close'] < c2['Open'] and
-            o < c2['Close'] and c > c2['Open']):
-        return 'bullisches_engulfing'
+    o1, h1, l1, c1v = c1['Open'], c1['High'], c1['Low'], c1['Close']
+    body1 = abs(c1v - o1)
+    bull1 = c1v >= o1
 
-    # Bärisches Engulfing
-    if (c < o and c2['Close'] > c2['Open'] and
-            o > c2['Close'] and c < c2['Open']):
-        return 'baerisches_engulfing'
+    # Doji – Körper extrem klein → allein zurückgeben
+    if body3 <= gesamtrange3 * 0.08:
+        return [{'name': 'doji', **KERZEN_DEFINITIONEN['doji']}]
 
-    # Morgenstern (3 Kerzen): rot → kleiner Körper → große grüne Kerze
-    body1 = abs(c1['Close'] - c1['Open'])
-    body2 = abs(c2['Close'] - c2['Open'])
-    body3 = body
-    if (c1['Close'] < c1['Open'] and
+    # Spinning Top – kleiner Körper mit langen Schatten auf beiden Seiten
+    if (body3 <= gesamtrange3 * 0.3 and
+            upper_wick3 > body3 * 0.8 and lower_wick3 > body3 * 0.8):
+        muster.append('spinning_top')
+
+    # Hammer / Hanging Man – kleiner Körper oben, langer unterer Schatten
+    if (lower_wick3 >= body3 * 2.0 and
+            upper_wick3 <= body3 * 0.5 and
+            body3 / gesamtrange3 <= 0.35):
+        if not bull3 and c2v > c1v:
+            muster.append('hanging_man')
+        else:
+            muster.append('hammer')
+
+    # Inverted Hammer – kleiner Körper unten, langer oberer Schatten (bullisch)
+    if (bull3 and
+            upper_wick3 >= body3 * 2.0 and
+            lower_wick3 <= body3 * 0.5 and
+            body3 / gesamtrange3 <= 0.35):
+        muster.append('inverted_hammer')
+
+    # Shooting Star – wie Inverted Hammer, aber rote Kerze (bärisch)
+    if (not bull3 and
+            upper_wick3 >= body3 * 2.0 and
+            lower_wick3 <= body3 * 0.5 and
+            body3 / gesamtrange3 <= 0.35):
+        muster.append('shooting_star')
+
+    # Bullischer Marubozu – große grüne Kerze, kaum Schatten
+    if (bull3 and body3 / gesamtrange3 >= 0.85):
+        muster.append('bullischer_marubozu')
+
+    # Bärischer Marubozu – große rote Kerze, kaum Schatten
+    if (not bull3 and body3 / gesamtrange3 >= 0.85):
+        muster.append('baerischer_marubozu')
+
+    # Bullisches Engulfing – grüne Kerze umschließt vorherige rote
+    if (bull3 and not bull2 and body2 > 0 and
+            o3 <= c2v and c3v >= o2):
+        muster.append('bullisches_engulfing')
+
+    # Bärisches Engulfing – rote Kerze umschließt vorherige grüne
+    if (not bull3 and bull2 and body2 > 0 and
+            o3 >= c2v and c3v <= o2):
+        muster.append('baerisches_engulfing')
+
+    # Tweezer Bottom – zwei Kerzen mit fast gleichem Tief (bullisch)
+    if (bull3 and not bull2 and
+            abs(l2 - l3) / max(l2, 1e-9) < 0.003):
+        muster.append('tweezer_bottom')
+
+    # Tweezer Top – zwei Kerzen mit fast gleichem Hoch (bärisch)
+    if (not bull3 and bull2 and
+            abs(h2 - h3) / max(h2, 1e-9) < 0.003):
+        muster.append('tweezer_top')
+
+    # Morgenstern (3 Kerzen): rot → kleiner Mittelteil → große grüne Kerze
+    if (not bull1 and
             body2 <= body1 * 0.4 and
-            c > o and body3 >= body1 * 0.5 and
-            c > (c1['Open'] + c1['Close']) / 2):
-        return 'morgenstern'
+            bull3 and body3 >= body1 * 0.5 and
+            c3v > (o1 + c1v) / 2):
+        muster.append('morgenstern')
 
-    # Doji: Körper sehr klein → Unentschlossenheit
-    if body <= gesamtrange * 0.08:
-        return 'doji'
+    # Abendstern (3 Kerzen): grün → kleiner Mittelteil → große rote Kerze
+    if (bull1 and
+            body2 <= body1 * 0.4 and
+            not bull3 and body3 >= body1 * 0.5 and
+            c3v < (o1 + c1v) / 2):
+        muster.append('abendstern')
 
-    return None
+    return [{'name': n, **KERZEN_DEFINITIONEN[n]} for n in muster if n in KERZEN_DEFINITIONEN]
+
+
+# ── Chart-Muster Erkennung ────────────────────────────────────────────────────
+
+def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
+    """Erkennt übergeordnete Chart-Muster (Double Top/Bottom, Flags, Dreiecke)."""
+    if len(df) < 30:
+        return []
+
+    muster = []
+    n    = len(df)
+    lb   = min(60, n - 1)
+    h_arr = df['High'].values[-lb:]
+    l_arr = df['Low'].values[-lb:]
+    c_arr = df['Close'].values[-lb:]
+    lb_n  = len(h_arr)
+    w     = max(3, fenster // 2)
+
+    def lok_hochs(arr, w=3):
+        return [i for i in range(w, len(arr) - w)
+                if arr[i] == max(arr[i - w: i + w + 1])]
+
+    def lok_tiefs(arr, w=3):
+        return [i for i in range(w, len(arr) - w)
+                if arr[i] == min(arr[i - w: i + w + 1])]
+
+    h_idx = lok_hochs(h_arr, w)
+    l_idx = lok_tiefs(l_arr, w)
+
+    # ── Double Bottom ─────────────────────────────────────────────────────────
+    if len(l_idx) >= 2:
+        t1_i, t2_i = l_idx[-2], l_idx[-1]
+        t1, t2 = l_arr[t1_i], l_arr[t2_i]
+        if (t2_i > t1_i + 4 and
+                abs(t1 - t2) / max(t1, 1e-9) < 0.04):
+            peak = max(h_arr[t1_i: t2_i + 1])
+            if (peak - min(t1, t2)) / max(peak, 1e-9) > 0.03:
+                muster.append('double_bottom')
+
+    # ── Double Top ────────────────────────────────────────────────────────────
+    if len(h_idx) >= 2:
+        p1_i, p2_i = h_idx[-2], h_idx[-1]
+        p1, p2 = h_arr[p1_i], h_arr[p2_i]
+        if (p2_i > p1_i + 4 and
+                abs(p1 - p2) / max(p1, 1e-9) < 0.04):
+            trough = min(l_arr[p1_i: p2_i + 1])
+            if (max(p1, p2) - trough) / max(max(p1, p2), 1e-9) > 0.03:
+                muster.append('double_top')
+
+    # ── Bull Flag ─────────────────────────────────────────────────────────────
+    if lb_n >= 20:
+        split     = lb_n // 3
+        pole_move = (c_arr[split] - c_arr[0]) / max(abs(c_arr[0]), 1e-9) * 100
+        flag_arr  = c_arr[split:]
+        flag_rng  = (max(flag_arr) - min(flag_arr)) / max(abs(np.mean(flag_arr)), 1e-9) * 100
+        if len(flag_arr) >= 5 and pole_move > 5 and flag_rng < pole_move * 0.6:
+            x = np.arange(len(flag_arr))
+            slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
+            if -4 < slope_pct < 0.5:
+                muster.append('bull_flag')
+
+    # ── Bear Flag ─────────────────────────────────────────────────────────────
+    if lb_n >= 20:
+        split     = lb_n // 3
+        pole_move = (c_arr[0] - c_arr[split]) / max(abs(c_arr[0]), 1e-9) * 100
+        flag_arr  = c_arr[split:]
+        flag_rng  = (max(flag_arr) - min(flag_arr)) / max(abs(np.mean(flag_arr)), 1e-9) * 100
+        if len(flag_arr) >= 5 and pole_move > 5 and flag_rng < pole_move * 0.6:
+            x = np.arange(len(flag_arr))
+            slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
+            if -0.5 < slope_pct < 4:
+                muster.append('bear_flag')
+
+    # ── Aufsteigendes Dreieck ─────────────────────────────────────────────────
+    if len(h_idx) >= 2 and len(l_idx) >= 2:
+        rec_h = [h_arr[i] for i in h_idx[-3:]]
+        rec_l = [l_arr[i] for i in l_idx[-3:]]
+        if len(rec_h) >= 2 and len(rec_l) >= 2:
+            h_cv  = np.std(rec_h) / max(np.mean(rec_h), 1e-9) * 100
+            l_sl  = np.polyfit(range(len(rec_l)), rec_l, 1)[0]
+            if h_cv < 1.5 and l_sl > 0:
+                muster.append('ascending_triangle')
+
+    # ── Absteigendes Dreieck ──────────────────────────────────────────────────
+    if len(h_idx) >= 2 and len(l_idx) >= 2:
+        rec_h = [h_arr[i] for i in h_idx[-3:]]
+        rec_l = [l_arr[i] for i in l_idx[-3:]]
+        if len(rec_h) >= 2 and len(rec_l) >= 2:
+            l_cv  = np.std(rec_l) / max(np.mean(rec_l), 1e-9) * 100
+            h_sl  = np.polyfit(range(len(rec_h)), rec_h, 1)[0]
+            if l_cv < 1.5 and h_sl < 0:
+                muster.append('descending_triangle')
+
+    return [{'name': n, **CHARTMUSTER_DEFINITIONEN[n]} for n in muster if n in CHARTMUSTER_DEFINITIONEN]
 
 # ── Daytrading Signal ────────────────────────────────────────────────────────
 
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
                               richtung: str, hoch: float, tief: float,
-                              bullisch_pct: float = 50.0, intraday: bool = False):
+                              bullisch_pct: float = 50.0, intraday: bool = False,
+                              kerzen_muster: list = None, chart_muster: list = None):
     rsi      = ind['rsi']
     ema20    = ind['ema20']
     ema50    = ind['ema50']
@@ -1020,6 +1196,20 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     if richtung == 'aufwärts': long_score  += 1
     else:                      short_score += 1
 
+    # Candlestick- & Chart-Muster
+    for km in (kerzen_muster or []):
+        pts = max(-3, min(3, km['score'] // 4))
+        if pts > 0:
+            long_score  += pts; gruende_long.append(km['text'])
+        elif pts < 0:
+            short_score += abs(pts); gruende_short.append(km['text'])
+    for cm in (chart_muster or []):
+        pts = max(-4, min(4, cm['score'] // 5))
+        if pts > 0:
+            long_score  += pts; gruende_long.append(cm['text'])
+        elif pts < 0:
+            short_score += abs(pts); gruende_short.append(cm['text'])
+
     # Gesamtbild
     if bullisch_pct >= 65:
         long_score += 3;  gruende_long.append(f'Gesamtanalyse bullisch ({bullisch_pct:.0f}%)')
@@ -1113,7 +1303,8 @@ SIGNAL_FARBEN = {
 
 KEY_FIB_LEVELS = {'61,8 %', '50,0 %', '38,2 %', '23,6 %'}
 
-def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
+def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief,
+                           kerzen_muster=None, chart_muster=None):
     score         = 0
     begruendungen = []
     warnungen     = []
@@ -1240,21 +1431,17 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         score -= 16
         warnungen.append('Bärische RSI-Divergenz – Schwäche-Signal')
 
-    # ── 7. Kerzenformation ────────────────────────────────────────────────────
-    formation = erkenne_kerzenformation(df)
-    formation_texte = {
-        'hammer':               ('Hammer-Kerze – bullisches Umkehrsignal', +12),
-        'bullisches_engulfing': ('Bullisches Engulfing – starkes Kaufsignal', +15),
-        'baerisches_engulfing': ('Bärisches Engulfing – Verkaufsdruck', -14),
-        'morgenstern':          ('Morgenstern-Formation – bullische Trendwende', +18),
-        'doji':                 ('Doji-Kerze – Unentschlossenheit am Markt', 0),
-    }
-    if formation and formation in formation_texte:
-        text, punkte = formation_texte[formation]
-        score += punkte
-        if punkte > 0:   begruendungen.append(text)
-        elif punkte < 0: warnungen.append(text)
-        else:            bedingungen.append(text)
+    # ── 7. Kerzenformationen & Chart-Muster ───────────────────────────────────
+    for km in (kerzen_muster or []):
+        score += km['score']
+        if km['score'] > 0:   begruendungen.append(km['text'])
+        elif km['score'] < 0: warnungen.append(km['text'])
+        else:                 bedingungen.append(km['text'])
+    for cm in (chart_muster or []):
+        score += cm['score']
+        if cm['score'] > 0:   begruendungen.append(cm['text'])
+        elif cm['score'] < 0: warnungen.append(cm['text'])
+        else:                 bedingungen.append(cm['text'])
 
     # ── 8. Swing-Richtung ─────────────────────────────────────────────────────
     if richtung == 'aufwärts':
@@ -1483,7 +1670,8 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief):
         'warnungen':     warnungen,
         'bedingungen':   bedingungen,
         'divergenz':     divergenz,
-        'formation':     formation,
+        'kerzen_muster': kerzen_muster or [],
+        'chart_muster':  chart_muster  or [],
         'support':       round(naechster_support,   2) if naechster_support   is not None else round(tief, 2),
         'resistance':    round(naechste_resistance, 2) if naechste_resistance is not None else round(hoch, 2),
     }
@@ -1547,11 +1735,19 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
             aktuell, levels, ind, richtung
         )
 
+        # Muster-Erkennung
+        kerzen_muster = erkenne_kerzenformation(df)
+        chart_muster  = erkenne_chartmuster(df, fenster)
+
         # Handelssignal
-        signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief)
+        signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief,
+                                         kerzen_muster, chart_muster)
 
         # Daytrading Signal
-        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief, wkeit, intraday)
+        daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief,
+                                             wkeit, intraday,
+                                             kerzen_muster=kerzen_muster,
+                                             chart_muster=chart_muster)
 
         # Chart (nur wenn benötigt)
         if mit_chart:
@@ -1620,10 +1816,12 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
                 'stoch_k':       ind.get('stoch_k', 50),
                 'stoch_d':       ind.get('stoch_d', 50),
             },
-            'chart_json':  chart_json,
-            'signal':      signal,
-            'daytrade':    daytrade,
-            'fehler':      None,
+            'chart_json':    chart_json,
+            'signal':        signal,
+            'daytrade':      daytrade,
+            'kerzen_muster': kerzen_muster,
+            'chart_muster':  chart_muster,
+            'fehler':        None,
         }
     except Exception as e:
         return {'fehler': f'Analyse fehlgeschlagen: {str(e)}'}

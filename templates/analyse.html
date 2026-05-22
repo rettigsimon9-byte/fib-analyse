@@ -218,6 +218,29 @@
       {% endif %}
     </div>
 
+    <!-- Erkannte Muster -->
+    {% if d.kerzen_muster or d.chart_muster %}
+    <div class="row g-2 mt-1">
+      <div class="col-12">
+        <div class="signal-reason-block">
+          <div class="signal-reason-title text-info"><i class="bi bi-bar-chart-steps me-1"></i>Erkannte Chartmuster</div>
+          <div class="d-flex flex-wrap gap-2 mt-1">
+            {% for m in d.kerzen_muster %}
+            <span class="muster-badge muster-{{ m.richtung }}">
+              🕯 {{ m.text }}
+            </span>
+            {% endfor %}
+            {% for m in d.chart_muster %}
+            <span class="muster-badge muster-{{ m.richtung }} muster-chart">
+              📊 {{ m.text }}
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 
   <!-- Daytrading Box -->
@@ -298,6 +321,21 @@
         <span class="daytrade-grund {% if dt.richtung == 'LONG' %}grund-long{% else %}grund-short{% endif %}">{{ g }}</span>
       {% endfor %}
     </div>
+
+    <!-- Erkannte Muster im Daytrading-Kontext -->
+    {% if d.kerzen_muster or d.chart_muster %}
+    <div class="daytrade-muster mt-2">
+      <div class="text-muted small mb-1"><i class="bi bi-eye me-1"></i>Erkannte Muster</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for m in d.kerzen_muster %}
+        <span class="muster-badge muster-{{ m.richtung }}">🕯 {{ m.text }}</span>
+        {% endfor %}
+        {% for m in d.chart_muster %}
+        <span class="muster-badge muster-{{ m.richtung }} muster-chart">📊 {{ m.text }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Hinweis -->
     <div class="daytrade-hinweis mt-2">
