@@ -632,7 +632,8 @@ def berechne_zonen(levels: dict, toleranz_pct: float = 0.5):
 
 def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                    hoch: float, tief: float, richtung: str, ticker: str,
-                   intraday: bool = False, ema200_daily: float = None):
+                   intraday: bool = False, ema200_daily: float = None,
+                   kerzen_muster: list = None, chart_muster: list = None):
 
     # ── Indikatoren berechnen für Subcharts ──────────────────────────────────
     close = df['Close']
@@ -888,6 +889,43 @@ def erstelle_chart(df: pd.DataFrame, levels: dict, zonen: list,
                     title=dict(text='Stoch', font=dict(size=9, color='#f59e0b'))),
     )
 
+    # ── Muster-Annotationen im Chart ─────────────────────────────────────────
+    alle_muster = (kerzen_muster or []) + (chart_muster or [])
+    if alle_muster:
+        x_last     = df.index[-1]
+        last_high  = float(df.iloc[-1]['High'])
+        last_low   = float(df.iloc[-1]['Low'])
+        preis_span = hoch - tief if hoch != tief else last_high * 0.01
+
+        bull_m = [m for m in alle_muster if m.get('richtung') == 'bullisch']
+        bear_m = [m for m in alle_muster if m.get('richtung') == 'baerisch']
+        neut_m = [m for m in alle_muster if m.get('richtung') not in ('bullisch', 'baerisch')]
+
+        for gruppe, y_base, ay, farbe in [
+            (bull_m, last_low  - preis_span * 0.04,  50, '#22c55e'),
+            (bear_m, last_high + preis_span * 0.04, -50, '#ef4444'),
+            (neut_m, last_high + preis_span * 0.02, -40, '#94a3b8'),
+        ]:
+            if not gruppe:
+                continue
+            label = ' · '.join(m['text'] for m in gruppe[:2])
+            fig.add_annotation(
+                x=x_last, y=y_base, xref='x', yref='y',
+                text=f'📍 {label}',
+                showarrow=True, arrowhead=2, arrowsize=1,
+                arrowcolor=farbe, arrowwidth=1.5,
+                ax=0, ay=ay,
+                font=dict(size=9, color=farbe),
+                bgcolor='rgba(15,23,42,0.88)',
+                bordercolor=farbe, borderwidth=1, borderpad=3,
+            )
+
+        # Vertikale gepunktete Linie an der Muster-Kerze
+        fig.add_vline(
+            x=x_last,
+            line=dict(color='rgba(251,191,36,0.35)', width=1, dash='dot'),
+        )
+
     return fig.to_json()
 
 # ── RSI-Divergenz Erkennung ───────────────────────────────────────────────────
@@ -1040,7 +1078,27 @@ def erkenne_kerzenformation(df: pd.DataFrame) -> list:
             c3v < (o1 + c1v) / 2):
         muster.append('abendstern')
 
-    return [{'name': n, **KERZEN_DEFINITIONEN[n]} for n in muster if n in KERZEN_DEFINITIONEN]
+    # Anzahl beteiligter Kerzen je Muster (für Zeitstempel-Spanne)
+    _KERZEN_ANZAHL = {
+        'bullisches_engulfing': 2, 'baerisches_engulfing': 2,
+        'tweezer_bottom': 2,       'tweezer_top': 2,
+        'morgenstern': 3,          'abendstern': 3,
+    }
+    result = []
+    for n in muster:
+        if n not in KERZEN_DEFINITIONEN:
+            continue
+        anzahl = _KERZEN_ANZAHL.get(n, 1)
+        eintrag = {
+            'name':   n,
+            **KERZEN_DEFINITIONEN[n],
+            'kerzen': anzahl,
+            'zeit':   _fmt_zeit(df.index[-1]),
+        }
+        if anzahl > 1:
+            eintrag['zeit_start'] = _fmt_zeit(df.index[-anzahl])
+        result.append(eintrag)
+    return result
 
 
 # ── Chart-Muster Erkennung ────────────────────────────────────────────────────
@@ -1134,7 +1192,8 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             if l_cv < 1.5 and h_sl < 0:
                 muster.append('descending_triangle')
 
-    return [{'name': n, **CHARTMUSTER_DEFINITIONEN[n]} for n in muster if n in CHARTMUSTER_DEFINITIONEN]
+    return [{'name': n, **CHARTMUSTER_DEFINITIONEN[n], 'zeit': _fmt_zeit(df.index[-1])}
+            for n in muster if n in CHARTMUSTER_DEFINITIONEN]
 
 # ── Daytrading Signal ────────────────────────────────────────────────────────
 
@@ -1836,7 +1895,9 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         # Chart (nur wenn benötigt)
         if mit_chart:
             chart_json = erstelle_chart(df, levels, zonen, hoch, tief, richtung, ticker,
-                                         intraday, ema200_daily)
+                                         intraday, ema200_daily,
+                                         kerzen_muster=kerzen_muster,
+                                         chart_muster=chart_muster)
         else:
             chart_json = None
 

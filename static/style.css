@@ -460,6 +460,7 @@
 .muster-baerisch  { background: rgba(239,68,68,0.15);  color: #f87171; border-color: rgba(239,68,68,0.3); }
 .muster-neutral   { background: rgba(100,116,139,0.15); color: #94a3b8; border-color: rgba(100,116,139,0.3); }
 .muster-chart     { border-style: dashed; }
+.muster-zeit      { font-size: 9px; font-weight: 400; opacity: 0.75; white-space: nowrap; }
 
 .daytrade-muster { }
 
