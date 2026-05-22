@@ -1108,7 +1108,6 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
     if len(df) < 30:
         return []
 
-    muster = []
     n    = len(df)
     lb   = min(60, n - 1)
     h_arr = df['High'].values[-lb:]
@@ -1128,6 +1127,9 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
     h_idx = lok_hochs(h_arr, w)
     l_idx = lok_tiefs(l_arr, w)
 
+    # muster_meta: list of (name, start_arr_idx) — start_arr_idx im lookback-Array
+    muster_meta: list[tuple[str, int]] = []
+
     # ── Double Bottom ─────────────────────────────────────────────────────────
     if len(l_idx) >= 2:
         t1_i, t2_i = l_idx[-2], l_idx[-1]
@@ -1136,7 +1138,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
                 abs(t1 - t2) / max(t1, 1e-9) < 0.04):
             peak = max(h_arr[t1_i: t2_i + 1])
             if (peak - min(t1, t2)) / max(peak, 1e-9) > 0.03:
-                muster.append('double_bottom')
+                muster_meta.append(('double_bottom', t1_i))
 
     # ── Double Top ────────────────────────────────────────────────────────────
     if len(h_idx) >= 2:
@@ -1146,7 +1148,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
                 abs(p1 - p2) / max(p1, 1e-9) < 0.04):
             trough = min(l_arr[p1_i: p2_i + 1])
             if (max(p1, p2) - trough) / max(max(p1, p2), 1e-9) > 0.03:
-                muster.append('double_top')
+                muster_meta.append(('double_top', p1_i))
 
     # ── Bull Flag ─────────────────────────────────────────────────────────────
     if lb_n >= 20:
@@ -1158,7 +1160,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             x = np.arange(len(flag_arr))
             slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
             if -4 < slope_pct < 0.5:
-                muster.append('bull_flag')
+                muster_meta.append(('bull_flag', 0))
 
     # ── Bear Flag ─────────────────────────────────────────────────────────────
     if lb_n >= 20:
@@ -1170,30 +1172,52 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
             x = np.arange(len(flag_arr))
             slope_pct = np.polyfit(x, flag_arr, 1)[0] / max(abs(np.mean(flag_arr)), 1e-9) * 100
             if -0.5 < slope_pct < 4:
-                muster.append('bear_flag')
+                muster_meta.append(('bear_flag', 0))
 
-    # ── Aufsteigendes Dreieck ─────────────────────────────────────────────────
+    # ── Dreiecke — gegenseitig ausschließend ──────────────────────────────────
+    asc_detected = desc_detected = False
+    asc_start = desc_start = 0
     if len(h_idx) >= 2 and len(l_idx) >= 2:
-        rec_h = [h_arr[i] for i in h_idx[-3:]]
-        rec_l = [l_arr[i] for i in l_idx[-3:]]
+        rec_h_idx = h_idx[-3:]
+        rec_l_idx = l_idx[-3:]
+        rec_h = [h_arr[i] for i in rec_h_idx]
+        rec_l = [l_arr[i] for i in rec_l_idx]
         if len(rec_h) >= 2 and len(rec_l) >= 2:
             h_cv  = np.std(rec_h) / max(np.mean(rec_h), 1e-9) * 100
             l_sl  = np.polyfit(range(len(rec_l)), rec_l, 1)[0]
-            if h_cv < 1.5 and l_sl > 0:
-                muster.append('ascending_triangle')
-
-    # ── Absteigendes Dreieck ──────────────────────────────────────────────────
-    if len(h_idx) >= 2 and len(l_idx) >= 2:
-        rec_h = [h_arr[i] for i in h_idx[-3:]]
-        rec_l = [l_arr[i] for i in l_idx[-3:]]
-        if len(rec_h) >= 2 and len(rec_l) >= 2:
             l_cv  = np.std(rec_l) / max(np.mean(rec_l), 1e-9) * 100
             h_sl  = np.polyfit(range(len(rec_h)), rec_h, 1)[0]
-            if l_cv < 1.5 and h_sl < 0:
-                muster.append('descending_triangle')
+            tri_start = min(rec_h_idx[0], rec_l_idx[0])
 
-    return [{'name': n, **CHARTMUSTER_DEFINITIONEN[n], 'zeit': _fmt_zeit(df.index[-1])}
-            for n in muster if n in CHARTMUSTER_DEFINITIONEN]
+            if h_cv < 1.5 and l_sl > 0:
+                asc_detected = True
+                asc_start    = tri_start
+            if l_cv < 1.5 and h_sl < 0:
+                desc_detected = True
+                desc_start    = tri_start
+
+    # Beide gleichzeitig → widersprüchlich → beide verwerfen
+    if asc_detected and not desc_detected:
+        muster_meta.append(('ascending_triangle', asc_start))
+    elif desc_detected and not asc_detected:
+        muster_meta.append(('descending_triangle', desc_start))
+    # Bei beiden: kein Dreieck ausgegeben (kein klares Signal)
+
+    # ── Zeitstempel berechnen und Ergebnis aufbauen ───────────────────────────
+    result = []
+    for name, start_arr_idx in muster_meta:
+        if name not in CHARTMUSTER_DEFINITIONEN:
+            continue
+        # Umrechnung: Index im Lookback-Array → negativer df-Index
+        df_start_idx = start_arr_idx - lb_n  # z.B. -60, -30 etc.
+        eintrag = {
+            'name':       name,
+            **CHARTMUSTER_DEFINITIONEN[name],
+            'zeit_start': _fmt_zeit(df.index[df_start_idx]),
+            'zeit':       _fmt_zeit(df.index[-1]),
+        }
+        result.append(eintrag)
+    return result
 
 # ── Daytrading Signal ────────────────────────────────────────────────────────
 

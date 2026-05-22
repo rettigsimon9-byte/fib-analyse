@@ -257,7 +257,14 @@
             {% for m in d.chart_muster %}
             <span class="muster-badge muster-{{ m.richtung }} muster-chart">
               📊 {{ m.text }}
-              <span class="muster-zeit"><i class="bi bi-clock ms-1"></i> {{ m.zeit }} Uhr</span>
+              <span class="muster-zeit">
+                <i class="bi bi-clock ms-1"></i>
+                {% if m.zeit_start is defined %}
+                  {{ m.zeit_start }}–{{ m.zeit }} Uhr
+                {% else %}
+                  {{ m.zeit }} Uhr
+                {% endif %}
+              </span>
             </span>
             {% endfor %}
           </div>
@@ -369,7 +376,14 @@
         {% for m in d.chart_muster %}
         <span class="muster-badge muster-{{ m.richtung }} muster-chart">
           📊 {{ m.text }}
-          <span class="muster-zeit"><i class="bi bi-clock ms-1"></i> {{ m.zeit }} Uhr</span>
+          <span class="muster-zeit">
+            <i class="bi bi-clock ms-1"></i>
+            {% if m.zeit_start is defined %}
+              {{ m.zeit_start }}–{{ m.zeit }} Uhr
+            {% else %}
+              {{ m.zeit }} Uhr
+            {% endif %}
+          </span>
         </span>
         {% endfor %}
       </div>
