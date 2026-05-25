@@ -1120,7 +1120,7 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         return []
 
     n     = len(df)
-    lb    = min(100, n - 1)   # mehr History für aussagekräftigere Muster
+    lb    = n - 1             # gesamten gewählten Zeitraum analysieren
     h_arr = df['High'].values[-lb:]
     l_arr = df['Low'].values[-lb:]
     c_arr = df['Close'].values[-lb:]
@@ -1360,6 +1360,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     minus_di = ind.get('minus_di', 0)
     vwap     = ind.get('vwap', 0)
     bb_pos   = ind.get('bb_pos', 0.5)
+    ema200   = ind['ema200']
 
     alle_preise = sorted(levels.values())
     supports    = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
@@ -1401,14 +1402,20 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         long_score += w_macd - 1;     gruende_long.append('MACD bullisches Momentum')
     elif mhist < 0 and mhist_p >= 0:
         short_score += w_macd;        gruende_short.append('Frisches MACD-Verkaufskreuz')
-    else:
+    elif macd < msig:
         short_score += w_macd - 1;    gruende_short.append('MACD bärisches Momentum')
 
-    # EMA-Trend
+    # EMA-Trend (kurzfristig)
     if aktuell > ema20 > ema50:
         long_score += 2;  gruende_long.append('Aufwärtstrend (Preis > EMA20 > EMA50)')
     elif aktuell < ema20 < ema50:
         short_score += 2; gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
+
+    # EMA200 – übergeordneter Trend (täglich für Intraday, Intervall-basiert für Swing)
+    if aktuell > ema200:
+        long_score  += 2; gruende_long.append(f'Über EMA200 ({ema200:.2f}) – übergeordnet bullisch')
+    else:
+        short_score += 2; gruende_short.append(f'Unter EMA200 ({ema200:.2f}) – übergeordnet bärisch')
 
     # Fibonacci-Position (nur für Swing-Charts, nicht Intraday)
     if w_fib > 0:
@@ -1466,6 +1473,19 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
             long_score  += pts; gruende_long.append(cm['text'])
         elif pts < 0:
             short_score += abs(pts); gruende_short.append(cm['text'])
+
+    # Volumen-Bestätigung (amplifiziert die führende Seite)
+    vr = ind.get('volumen_ratio', 1.0)
+    if vr >= 2.0:
+        if long_score >= short_score:
+            long_score  += 3; gruende_long.append(f'Sehr hohes Volumen ({vr:.1f}x) – Aufwärtsmomentum bestätigt')
+        else:
+            short_score += 3; gruende_short.append(f'Sehr hohes Volumen ({vr:.1f}x) – Abwärtsmomentum bestätigt')
+    elif vr >= 1.4:
+        if long_score >= short_score:
+            long_score  += 2; gruende_long.append(f'Überdurchschnittliches Volumen ({vr:.1f}x)')
+        else:
+            short_score += 2; gruende_short.append(f'Überdurchschnittliches Volumen ({vr:.1f}x)')
 
     # Gesamtbild
     if bullisch_pct >= 65:
