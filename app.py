@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, redirect
 from analyse import analysiere, PERIODEN
+from backtest import backtest_daytrade
 
 app = Flask(__name__)
 
@@ -130,6 +131,50 @@ def api_lookup():
         return jsonify({'name': name, 'currency': currency})
     except Exception:
         return jsonify({'name': None, 'currency': None})
+
+BACKTEST_PERIODEN = [
+    {'key': '5d',  'label': '5 Tage (15min)'},
+    {'key': '1wk', 'label': '1 Woche (1h)'},
+    {'key': '1mo', 'label': '1 Monat (1d)'},
+    {'key': '3mo', 'label': '3 Monate (1d)'},
+    {'key': '6mo', 'label': '6 Monate (1d)'},
+    {'key': '1y',  'label': '1 Jahr (1d)'},
+    {'key': '2y',  'label': '2 Jahre (1wk)'},
+    {'key': '5y',  'label': '5 Jahre (1wk)'},
+]
+
+
+@app.route('/backtest')
+def backtest_view():
+    ticker  = request.args.get('ticker', '').strip().upper()
+    periode = request.args.get('periode', '1y')
+
+    if not ticker:
+        return render_template('backtest.html',
+            beliebte=BELIEBTE_TICKER,
+            perioden=BACKTEST_PERIODEN,
+            ergebnis=None,
+            aktuelle_periode=periode,
+        )
+
+    ergebnis = backtest_daytrade(ticker, periode)
+    return render_template('backtest.html',
+        beliebte=BELIEBTE_TICKER,
+        perioden=BACKTEST_PERIODEN,
+        ergebnis=ergebnis,
+        aktuelle_periode=periode,
+        letzter_ticker=ticker,
+    )
+
+
+@app.route('/api/backtest')
+def api_backtest():
+    ticker  = request.args.get('ticker', '').strip().upper()
+    periode = request.args.get('periode', '1y')
+    if not ticker:
+        return jsonify({'fehler': 'Ticker fehlt'})
+    return jsonify(backtest_daytrade(ticker, periode))
+
 
 @app.route('/api/analyse')
 def api_analyse():

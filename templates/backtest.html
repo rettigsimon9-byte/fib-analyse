@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backtest – Fibonacci Aktienanalyse</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .stat-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .stat-box-label { color: #94a3b8; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-box-value { color: #f1f5f9; font-size: 1.45rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat-box-sub   { color: #64748b; font-size: 0.8em; }
+    .text-pos { color: #22c55e; }
+    .text-neg { color: #ef4444; }
+    .text-mid { color: #f59e0b; }
+    .trades-table { font-variant-numeric: tabular-nums; font-size: 0.86em; }
+    .trades-table th { color: #94a3b8; font-weight: 500; border-color: #334155; }
+    .trades-table td { color: #e2e8f0; border-color: #1e293b; }
+    .trade-long  { color: #22c55e; font-weight: 600; }
+    .trade-short { color: #ef4444; font-weight: 600; }
+    .exit-tp { background: rgba(34,197,94,0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; }
+    .exit-sl { background: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; }
+    .exit-timeout { background: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; }
+    .equity-svg { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; }
+  </style>
+</head>
+<body class="dark-body">
+
+<nav class="analyse-topbar">
+  <a href="/" class="btn btn-sm btn-ghost me-3">
+    <i class="bi bi-arrow-left"></i> Zurück
+  </a>
+  <span class="ticker-badge"><i class="bi bi-graph-up"></i> Backtest</span>
+  {% if ergebnis and ergebnis.ticker %}
+  <span class="stock-name">{{ ergebnis.ticker }} · {{ ergebnis.periode_label }}</span>
+  {% endif %}
+</nav>
+
+<div class="container py-4">
+
+  <!-- Formular -->
+  <div class="card search-card mx-auto mb-4" style="max-width:720px">
+    <div class="card-body p-4">
+      <h5 class="text-white mb-3">
+        <i class="bi bi-clipboard-data me-2"></i>Daytrade-Signal historisch testen
+      </h5>
+      <p class="text-muted small mb-3">
+        Walk-Forward-Simulation: das aktuelle Signal wird Bar-für-Bar nur aus
+        damals sichtbaren Daten generiert. SL/TP-Exits werden mit den realen
+        High/Low der Folge-Bars geprüft. Konservativ: SL hat Vorrang vor TP
+        wenn beide in derselben Kerze berührt werden.
+      </p>
+      <form action="/backtest" method="get">
+        <div class="mb-3">
+          <label class="form-label text-white fw-semibold">Ticker</label>
+          <input type="text" name="ticker" class="form-control form-control-lg dark-input"
+                 placeholder="z.B. AAPL, NVDA, BTC-USD"
+                 value="{{ letzter_ticker or '' }}" required autocomplete="off">
+        </div>
+        <div class="mb-4">
+          <label class="form-label text-white fw-semibold">Zeitraum</label>
+          <div class="d-flex flex-wrap gap-2">
+            {% for p in perioden %}
+            <div class="form-check period-check">
+              <input class="form-check-input" type="radio" name="periode" id="bp_{{ p.key }}"
+                     value="{{ p.key }}" {% if p.key == aktuelle_periode %}checked{% endif %}>
+              <label class="form-check-label" for="bp_{{ p.key }}">{{ p.label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <button type="submit" class="btn btn-fib btn-lg w-100">
+          <i class="bi bi-play-circle me-2"></i>Backtest starten
+        </button>
+      </form>
+      <div class="mt-3 small text-muted">
+        <i class="bi bi-info-circle me-1"></i>
+        Hinweis: yfinance liefert nur ~60 Tage für 5min/15min-Intervalle. Für
+        längere Historie höheres Intervall wählen.
+      </div>
+    </div>
+  </div>
+
+  {% if ergebnis %}
+    {% if ergebnis.fehler %}
+    <div class="alert alert-danger mx-auto" style="max-width:720px">
+      <i class="bi bi-exclamation-triangle me-2"></i>{{ ergebnis.fehler }}
+    </div>
+    {% else %}
+
+    <!-- Übersicht -->
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Trades</div>
+          <div class="stat-box-value">{{ ergebnis.n_trades }}</div>
+          <div class="stat-box-sub">{{ ergebnis.long_trades }} LONG · {{ ergebnis.short_trades }} SHORT</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Win-Rate</div>
+          <div class="stat-box-value {% if ergebnis.win_rate >= 50 %}text-pos{% elif ergebnis.win_rate >= 40 %}text-mid{% else %}text-neg{% endif %}">
+            {{ ergebnis.win_rate }} %
+          </div>
+          <div class="stat-box-sub">LONG {{ ergebnis.long_win_rate }} % · SHORT {{ ergebnis.short_win_rate }} %</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Profit Factor</div>
+          <div class="stat-box-value {% if ergebnis.profit_factor >= 1.5 %}text-pos{% elif ergebnis.profit_factor >= 1 %}text-mid{% else %}text-neg{% endif %}">
+            {{ ergebnis.profit_factor }}
+          </div>
+          <div class="stat-box-sub">Summe Gewinne / Summe Verluste</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Expectancy</div>
+          <div class="stat-box-value {% if ergebnis.expectancy_pct > 0 %}text-pos{% else %}text-neg{% endif %}">
+            {{ ergebnis.expectancy_pct }} %
+          </div>
+          <div class="stat-box-sub">Ø Erwartung pro Trade</div>
+        </div>
+      </div>
+
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Gesamtgewinn</div>
+          <div class="stat-box-value {% if ergebnis.gesamtgewinn_pct > 0 %}text-pos{% else %}text-neg{% endif %}">
+            {{ ergebnis.gesamtgewinn_pct }} %
+          </div>
+          <div class="stat-box-sub">Aufsummiert über alle Trades</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Max Drawdown</div>
+          <div class="stat-box-value text-neg">−{{ ergebnis.max_drawdown_pct }} %</div>
+          <div class="stat-box-sub">Größter Equity-Rückgang</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Ø Gewinn-Trade</div>
+          <div class="stat-box-value text-pos">+{{ ergebnis.avg_win_pct }} %</div>
+          <div class="stat-box-sub">Ø Verlust: {{ ergebnis.avg_loss_pct }} %</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-box-label">Sharpe (vereinfacht)</div>
+          <div class="stat-box-value {% if ergebnis.sharpe >= 0.5 %}text-pos{% elif ergebnis.sharpe >= 0 %}text-mid{% else %}text-neg{% endif %}">
+            {{ ergebnis.sharpe }}
+          </div>
+          <div class="stat-box-sub">{{ ergebnis.bars_getestet }} Bars getestet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interpretation -->
+    <div class="alert alert-secondary mb-4" style="background:#1e293b;border-color:#334155;color:#e2e8f0">
+      <i class="bi bi-lightbulb me-2 text-warning"></i>
+      <strong>Interpretation:</strong>
+      Profit Factor ≥ 1,5 = solides Setup. Expectancy &gt; 0 = positiver Erwartungswert.
+      Sharpe &gt; 0,5 = gutes Risiko-Rendite-Verhältnis.
+      {% if ergebnis.htf_trend != 'neutral' %}
+      Higher-Timeframe war im Testzeitraum <strong>{{ ergebnis.htf_trend }}</strong> —
+      Veto-Filter wirken entsprechend einseitig.
+      {% endif %}
+    </div>
+
+    <!-- Equity-Kurve (SVG) -->
+    {% if ergebnis.trades %}
+    <div class="mb-4">
+      <h6 class="text-white mb-2"><i class="bi bi-graph-up me-2"></i>Equity-Kurve (kumuliertes % über Trades)</h6>
+      <svg class="equity-svg" viewBox="0 0 1000 180" preserveAspectRatio="none">
+        {% set ns = namespace(eq=0, min=0, max=0) %}
+        {% for t in ergebnis.trades %}
+          {% set ns.eq = ns.eq + t.pnl_pct %}
+          {% if ns.eq < ns.min %}{% set ns.min = ns.eq %}{% endif %}
+          {% if ns.eq > ns.max %}{% set ns.max = ns.eq %}{% endif %}
+        {% endfor %}
+        {% set range = (ns.max - ns.min) if ns.max != ns.min else 1 %}
+        {% set ns.eq = 0 %}
+        {% set points = [] %}
+        {% for t in ergebnis.trades %}
+          {% set ns.eq = ns.eq + t.pnl_pct %}
+          {% set x = loop.index0 * (1000 / (ergebnis.trades|length - 1 if ergebnis.trades|length > 1 else 1)) %}
+          {% set y = 170 - ((ns.eq - ns.min) / range * 160) %}
+          {% set _ = points.append('%.1f,%.1f' % (x, y)) %}
+        {% endfor %}
+        <line x1="0" y1="{{ 170 - ((-ns.min) / range * 160) }}" x2="1000" y2="{{ 170 - ((-ns.min) / range * 160) }}" stroke="#475569" stroke-width="0.5" stroke-dasharray="3,3"/>
+        <polyline points="{{ points|join(' ') }}" fill="none" stroke="{% if ns.eq > 0 %}#22c55e{% else %}#ef4444{% endif %}" stroke-width="1.5"/>
+      </svg>
+    </div>
+    {% endif %}
+
+    <!-- Trade-Liste -->
+    {% if ergebnis.trades %}
+    <div class="mb-4">
+      <h6 class="text-white mb-2"><i class="bi bi-list-ul me-2"></i>Trade-Liste ({{ ergebnis.trades|length }} Trades)</h6>
+      <div class="table-responsive" style="max-height:480px;overflow-y:auto">
+        <table class="table table-sm trades-table">
+          <thead style="position:sticky;top:0;background:#0f172a;z-index:1">
+            <tr>
+              <th>#</th>
+              <th>Entry-Zeit</th>
+              <th>Seite</th>
+              <th>Entry</th>
+              <th>SL</th>
+              <th>TP</th>
+              <th>Exit</th>
+              <th>Grund</th>
+              <th>P&L %</th>
+              <th>R:R</th>
+              <th>Stärke</th>
+              <th>Bars</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in ergebnis.trades %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ t.entry_zeit[:16] }}</td>
+              <td class="{% if t.richtung == 'LONG' %}trade-long{% else %}trade-short{% endif %}">{{ t.richtung }}</td>
+              <td>{{ '%.2f'|format(t.entry) }}</td>
+              <td>{{ '%.2f'|format(t.sl) }}</td>
+              <td>{{ '%.2f'|format(t.tp) }}</td>
+              <td>{{ '%.2f'|format(t.exit) }}</td>
+              <td><span class="exit-{{ t.exit_grund|lower }}">{{ t.exit_grund }}</span></td>
+              <td class="{% if t.pnl_pct > 0 %}text-pos{% else %}text-neg{% endif %}">
+                {{ '%+.2f'|format(t.pnl_pct) }}
+              </td>
+              <td>{{ t.rr }}</td>
+              <td>{{ t.staerke }}%</td>
+              <td>{{ t.haltedauer }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning" style="background:#1e293b;border-color:#f59e0b;color:#fbbf24">
+      <i class="bi bi-exclamation-triangle me-2"></i>
+      Keine Trades generiert — alle Gates haben gefiltert oder Signal war zu schwach.
+      Das ist auch ein Ergebnis: das Setup ist selektiv. Versuche andere Ticker/Perioden.
+    </div>
+    {% endif %}
+
+    {% endif %}
+  {% endif %}
+
+  <!-- Quick-Backtests -->
+  <div class="mt-5">
+    <h6 class="text-white mb-2"><i class="bi bi-lightning me-2"></i>Schnellzugriff</h6>
+    <div class="d-flex flex-wrap gap-2">
+      {% for t in beliebte %}
+      <a href="/backtest?ticker={{ t.symbol }}&periode=1y" class="btn btn-quick">
+        <span class="ticker-symbol">{{ t.symbol }}</span>
+        <span class="ticker-name">{{ t.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

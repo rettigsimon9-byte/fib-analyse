@@ -1340,13 +1340,279 @@ def erkenne_chartmuster(df: pd.DataFrame, fenster: int = 5) -> list:
         result.append(eintrag)
     return result
 
+# ── Intraday-Strukturlevels (PDH/PDL/VWAP-Bänder/Session-Swings) ─────────────
+# Statistisch fundierte Intraday-Levels statt Fibonacci. PDH/PDL und VWAP-Bänder
+# sind in der Trading-Forschung als reale Magnet- und Reversal-Zonen belegt;
+# Fib-Levels über Mehrtages-Charts sind für Intraday-Trades nicht aussagekräftig.
+
+def berechne_intraday_strukturlevels(df: pd.DataFrame) -> dict:
+    """PDH/PDL/PDC, Day OHLC, VWAP ±1σ/2σ, letztes Session-Swing-Hoch/-Tief.
+    Gibt {label: preis} zurück. Wird für Intraday statt Fib-Levels verwendet."""
+    if df is None or len(df) < 10:
+        return {}
+
+    levels: dict = {}
+    try:
+        dates = pd.Series(df.index.date, index=df.index)
+        unique_dates = sorted(set(dates))
+
+        # Previous Day High/Low/Close (mind. 2 Tage nötig)
+        if len(unique_dates) >= 2:
+            gestern_mask = dates == unique_dates[-2]
+            gestern_df = df[gestern_mask]
+            if len(gestern_df) > 0:
+                levels['PDH'] = float(gestern_df['High'].max())
+                levels['PDL'] = float(gestern_df['Low'].min())
+                levels['PDC'] = float(gestern_df['Close'].iloc[-1])
+
+        # Aktuelle Tages-Session
+        heute_mask = dates == unique_dates[-1]
+        heute_df = df[heute_mask]
+        if len(heute_df) > 0:
+            levels['DO'] = float(heute_df['Open'].iloc[0])
+            if len(heute_df) >= 2:
+                levels['DH'] = float(heute_df['High'].max())
+                levels['DL'] = float(heute_df['Low'].min())
+
+            # Opening Range (erste 30 min) — Crabel-Setup, empirisch belegt
+            or_bars = min(len(heute_df), max(2, 30 // _minuten_pro_bar(df)))
+            or_df = heute_df.iloc[:or_bars]
+            if len(or_df) >= 2:
+                levels['ORH'] = float(or_df['High'].max())
+                levels['ORL'] = float(or_df['Low'].min())
+
+        # VWAP ± 1σ / 2σ (Volumen-gewichtete Standardabweichung pro Session)
+        typical = (df['High'] + df['Low'] + df['Close']) / 3
+        cum_tp_vol = (typical * df['Volume']).groupby(dates).cumsum()
+        cum_vol = df['Volume'].groupby(dates).cumsum().replace(0, 1)
+        vwap = cum_tp_vol / cum_vol
+        vwap_var = ((typical - vwap) ** 2 * df['Volume']).groupby(dates).cumsum() / cum_vol
+        vwap_std = vwap_var.clip(lower=0) ** 0.5
+
+        v = float(vwap.iloc[-1])
+        s = float(vwap_std.iloc[-1])
+        if v > 0 and s > 0:
+            levels['VWAP']     = round(v, 4)
+            levels['VWAP+1σ']  = round(v + s, 4)
+            levels['VWAP-1σ']  = round(v - s, 4)
+            levels['VWAP+2σ']  = round(v + 2 * s, 4)
+            levels['VWAP-2σ']  = round(v - 2 * s, 4)
+
+        # Letzte Session-Swings (lokale Extrema in den letzten ~20 Bars)
+        recent_n = min(len(df), 25)
+        recent = df.tail(recent_n)
+        h_arr = recent['High'].values
+        l_arr = recent['Low'].values
+        w = 2
+
+        for i in range(len(h_arr) - w - 1, w, -1):
+            if h_arr[i] == h_arr[max(0, i - w): i + w + 1].max():
+                levels['SessSwH'] = round(float(h_arr[i]), 4)
+                break
+        for i in range(len(l_arr) - w - 1, w, -1):
+            if l_arr[i] == l_arr[max(0, i - w): i + w + 1].min():
+                levels['SessSwL'] = round(float(l_arr[i]), 4)
+                break
+    except Exception:
+        return levels
+
+    return levels
+
+
+def _minuten_pro_bar(df: pd.DataFrame) -> int:
+    """Schätzt die Bar-Auflösung in Minuten aus dem Index-Abstand."""
+    try:
+        if len(df) < 2:
+            return 5
+        diff = (df.index[-1] - df.index[-2]).total_seconds() / 60
+        return max(1, int(diff))
+    except Exception:
+        return 5
+
+
+def finde_letztes_swing_tief(df: pd.DataFrame, fenster: int = 3,
+                              max_back: int = 30) -> float:
+    """Findet das jüngste lokale Tief in den letzten max_back Kerzen.
+    Wichtig für strukturbasierten Stop-Loss bei LONG-Trades."""
+    if df is None or len(df) < fenster * 2 + 1:
+        return float(df['Low'].min()) if df is not None and len(df) else 0.0
+    n = min(max_back, len(df) - 1)
+    l = df['Low'].values[-n - fenster:]
+    for i in range(len(l) - fenster - 1, fenster, -1):
+        if l[i] == l[max(0, i - fenster): i + fenster + 1].min():
+            return float(l[i])
+    return float(df['Low'].iloc[-max_back:].min())
+
+
+def finde_letztes_swing_hoch(df: pd.DataFrame, fenster: int = 3,
+                              max_back: int = 30) -> float:
+    """Findet das jüngste lokale Hoch — analog für SHORT-Trades."""
+    if df is None or len(df) < fenster * 2 + 1:
+        return float(df['High'].max()) if df is not None and len(df) else 0.0
+    n = min(max_back, len(df) - 1)
+    h = df['High'].values[-n - fenster:]
+    for i in range(len(h) - fenster - 1, fenster, -1):
+        if h[i] == h[max(0, i - fenster): i + fenster + 1].max():
+            return float(h[i])
+    return float(df['High'].iloc[-max_back:].max())
+
+
+# ── Quality-Gates (Zeit, Volatilität, Earnings, HTF) ─────────────────────────
+# Diese Filter sind empirisch belegt: Open/Close-Spitzen, Earnings-Gaps und
+# konfliktäre Higher-Timeframe-Trends sind Hauptursachen für Loss-Trades.
+
+def pruefe_zeitfilter(df: pd.DataFrame, intraday: bool = False) -> tuple:
+    """Prüft Tageszeit auf Handelseignung.
+    Returns: (handelbar: bool, grund: str)
+    - Erste 30 min nach US-Open (15:30-16:00 MEZ): Vola-Spitze, schlechtes R:R
+    - Letzte 15 min vor US-Close (21:45-22:00 MEZ): Close-Volatilität
+    """
+    if not intraday or _BERLIN is None or df is None or len(df) == 0:
+        return True, ''
+    try:
+        ts = df.index[-1]
+        if getattr(ts, 'tzinfo', None) is None:
+            ts = ts.tz_localize('UTC')
+        ts = ts.tz_convert(_BERLIN)
+        minuten = ts.hour * 60 + ts.minute
+
+        US_OPEN  = 15 * 60 + 30
+        US_CLOSE = 22 * 60
+        XETRA_OPEN  = 9 * 60
+        XETRA_CLOSE = 17 * 60 + 30
+
+        if US_OPEN <= minuten < US_OPEN + 30:
+            return False, 'Erste 30 min nach US-Open – Vola-Spike vermeiden'
+        if US_CLOSE - 15 <= minuten < US_CLOSE:
+            return False, 'Letzte 15 min vor US-Close – Close-Volatilität'
+        if XETRA_OPEN <= minuten < XETRA_OPEN + 15:
+            return False, 'Erste 15 min nach Xetra-Open'
+        if XETRA_CLOSE - 10 <= minuten < XETRA_CLOSE:
+            return False, 'Letzte 10 min vor Xetra-Close'
+        return True, ''
+    except Exception:
+        return True, ''
+
+
+def pruefe_volatilitaets_spike(df: pd.DataFrame, atr: float) -> tuple:
+    """Prüft auf abnormale Volatilitäts-Spitze in der letzten Kerze.
+    Returns: (ok: bool, grund: str). Spike >3× ATR → kein Trade (Pump/Dump-Risiko)."""
+    if df is None or len(df) < 2 or atr is None or atr <= 0:
+        return True, ''
+    try:
+        letzte = df.iloc[-1]
+        kerzen_range = float(letzte['High'] - letzte['Low'])
+        if kerzen_range > 3 * atr:
+            ratio = kerzen_range / atr
+            return False, f'Vola-Spike ({ratio:.1f}× ATR) – Pump/Dump-Risiko'
+        return True, ''
+    except Exception:
+        return True, ''
+
+
+def pruefe_earnings_naehe(ticker: str, tage_fenster: int = 1) -> tuple:
+    """Prüft, ob Earnings im ±tage_fenster sind. Earnings-Gaps killen Stop-Loss.
+    Returns: (handelbar: bool, grund: str)"""
+    if not ticker:
+        return True, ''
+    try:
+        tk = yf.Ticker(ticker)
+        ed = tk.earnings_dates
+        if ed is None or len(ed) == 0:
+            return True, ''
+        jetzt = pd.Timestamp.now(tz='UTC')
+        delta = pd.Timedelta(days=tage_fenster)
+        for dt in ed.index[:8]:
+            if abs(dt - jetzt) <= delta:
+                return False, f'Earnings in ±{tage_fenster}d – Gap-Risiko'
+        return True, ''
+    except Exception:
+        return True, ''
+
+
+_HTF_MAP = {
+    '5m':  '1h',
+    '15m': '1h',
+    '1h':  '1d',
+    '1d':  '1wk',
+    '1wk': '1mo',
+}
+_HTF_PERIOD = {'1h': '1mo', '1d': '6mo', '1wk': '2y', '1mo': '5y'}
+_htf_cache: dict = {}
+_HTF_TTL = 600  # 10 min
+
+
+def hole_htf_trend(ticker: str, intervall: str) -> str:
+    """Holt Higher-Timeframe-Trend ('bullisch'/'baerisch'/'neutral')
+    via EMA20 vs EMA50 auf dem nächsthöheren Timeframe."""
+    if not ticker or not intervall:
+        return 'neutral'
+    htf = _HTF_MAP.get(intervall)
+    if not htf:
+        return 'neutral'
+
+    cache_key = (ticker, htf)
+    jetzt = time.time()
+    if cache_key in _htf_cache:
+        wert, ts = _htf_cache[cache_key]
+        if jetzt - ts < _HTF_TTL:
+            return wert
+
+    try:
+        tk = yf.Ticker(ticker)
+        df_h = tk.history(period=_HTF_PERIOD.get(htf, '1mo'),
+                          interval=htf, auto_adjust=False)
+        if df_h is None or df_h.empty or len(df_h) < 20:
+            _htf_cache[cache_key] = ('neutral', jetzt)
+            return 'neutral'
+        if isinstance(df_h.columns, pd.MultiIndex):
+            df_h.columns = df_h.columns.get_level_values(0)
+
+        close = df_h['Close']
+        e20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
+        e50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
+        akt = close.iloc[-1]
+
+        if akt > e20 > e50:
+            trend = 'bullisch'
+        elif akt < e20 < e50:
+            trend = 'baerisch'
+        else:
+            trend = 'neutral'
+        _htf_cache[cache_key] = (trend, jetzt)
+        return trend
+    except Exception:
+        return 'neutral'
+
+
 # ── Daytrading Signal ────────────────────────────────────────────────────────
 
 def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
                               richtung: str, hoch: float, tief: float,
                               bullisch_pct: float = 50.0, intraday: bool = False,
                               kerzen_muster: list = None, chart_muster: list = None,
-                              tagesvol_pct: float = None):
+                              tagesvol_pct: float = None,
+                              df: pd.DataFrame = None,
+                              ticker: str = None,
+                              intervall: str = None,
+                              intraday_struktur: dict = None,
+                              htf_trend: str = 'neutral',
+                              earnings_warnung: bool = False,
+                              ist_handelszeit: bool = True,
+                              zeit_grund: str = ''):
+    """Liefert ein Daytrade-Signal (LONG/SHORT/kein Signal) mit strukturbasierten
+    Stop-Loss- und Take-Profit-Levels.
+
+    Statistisch motivierte Verbesserungen gegenüber der alten Version:
+    - Intraday nutzt PDH/PDL/VWAP-Bänder/Session-Swings statt Fib (Fib hat auf
+      Intraday keinen belegten Edge, Strukturlevels schon).
+    - Strukturbasierter SL: unter letztes Swing-Tief (LONG) bzw. über letztes
+      Swing-Hoch (SHORT) – nicht reine ATR-Mathematik.
+    - Stochastic-Beitrag stark reduziert (redundant zu RSI bei intraday).
+    - Hard-Gates: Earnings ±1 Tag, Vola-Spike >3× ATR, Open/Close-Phasen,
+      Higher-Timeframe-Konflikt, min. R:R 2:1.
+    - HTF-Konfluenz: 1h-Trend muss zum 15m-Signal passen (Bonus oder Veto).
+    """
     rsi      = ind['rsi']
     ema20    = ind['ema20']
     ema50    = ind['ema50']
@@ -1362,105 +1628,141 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     bb_pos   = ind.get('bb_pos', 0.5)
     ema200   = ind['ema200']
 
-    alle_preise = sorted(levels.values())
+    # ── S/R-Quelle: Intraday → Struktur (PDH/PDL/VWAP-Bänder), Swing → Fib ───
+    # Fib ist auf Intraday-Charts statistisch nicht aussagekräftig; PDH/PDL und
+    # VWAP-Bänder sind in der Trading-Forschung als reale Magnet-Levels belegt.
+    if intraday and intraday_struktur:
+        sr_levels  = dict(intraday_struktur)
+        sr_quelle  = 'Struktur'
+    else:
+        sr_levels  = dict(levels)
+        sr_quelle  = 'Fibonacci'
+
+    alle_preise = sorted(sr_levels.values())
     supports    = sorted([p for p in alle_preise if p < aktuell * 0.9995], reverse=True)
     resistances = sorted([p for p in alle_preise if p > aktuell * 1.0005])
 
-    # Fallback auf ATR-Projektion wenn Kurs außerhalb aller Fib-Level
     naechster_support   = supports[0]    if supports    else aktuell - atr * 2
     naechste_resistance = resistances[0] if resistances else aktuell + atr * 2
 
     abstand_sup_pct = (aktuell - naechster_support)   / aktuell * 100
     abstand_res_pct = (naechste_resistance - aktuell) / aktuell * 100
 
+    # Label des nächsten Levels (für UI)
+    def _label_zu(preis):
+        for nm, p in sr_levels.items():
+            if abs(p - preis) < 1e-6:
+                return nm
+        return ''
+    sup_label = _label_zu(naechster_support)
+    res_label = _label_zu(naechste_resistance)
+
     long_score  = 0
     short_score = 0
     gruende_long  = []
     gruende_short = []
 
-    # Gewichtungen: Intraday fokussiert auf VWAP/RSI/MACD, Swing auf Fibonacci
-    w_rsi   = 4 if intraday else 3
-    w_macd  = 4 if intraday else 3
-    w_vwap  = 5 if intraday else 3
-    w_stoch = 3 if intraday else 2
-    w_fib   = 0 if intraday else 2  # Fib-Level auf Intraday nicht aussagekräftig
+    # Gewichtungen – auf Intraday sind VWAP/Struktur und MACD die belegten Edges
+    w_rsi    = 3
+    w_macd   = 4 if intraday else 3
+    w_vwap   = 5 if intraday else 3
+    w_struk  = 4 if intraday else 0  # Struktur-Nähe als Hauptfaktor intraday
+    w_fib    = 0 if intraday else 2
+    w_htf    = 4                     # HTF-Alignment ist ein starker Faktor
 
-    # RSI
+    # ── 1. RSI (Extremzonen) ─────────────────────────────────────────────────
     if rsi < 30:
         long_score += w_rsi;      gruende_long.append(f'RSI stark überverkauft ({rsi:.0f})')
-    elif rsi < 45:
+    elif rsi < 40:
         long_score += w_rsi // 2; gruende_long.append(f'RSI überverkauft ({rsi:.0f})')
     elif rsi > 70:
         short_score += w_rsi;     gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
-    elif rsi > 55:
-        short_score += w_rsi // 2; gruende_short.append(f'RSI leicht überkauft ({rsi:.0f})')
+    elif rsi > 60:
+        short_score += w_rsi // 2; gruende_short.append(f'RSI überkauft ({rsi:.0f})')
 
-    # MACD (echtes Kreuz)
+    # ── 2. MACD (echtes Kreuz) ───────────────────────────────────────────────
     if mhist > 0 and mhist_p <= 0:
-        long_score += w_macd;         gruende_long.append('Frisches MACD-Kaufkreuz')
-    elif macd > msig:
-        long_score += w_macd - 1;     gruende_long.append('MACD bullisches Momentum')
+        long_score += w_macd;       gruende_long.append('Frisches MACD-Kaufkreuz')
+    elif macd > msig and mhist > 0:
+        long_score += w_macd - 2;   gruende_long.append('MACD bullisches Momentum')
     elif mhist < 0 and mhist_p >= 0:
-        short_score += w_macd;        gruende_short.append('Frisches MACD-Verkaufskreuz')
-    elif macd < msig:
-        short_score += w_macd - 1;    gruende_short.append('MACD bärisches Momentum')
+        short_score += w_macd;      gruende_short.append('Frisches MACD-Verkaufskreuz')
+    elif macd < msig and mhist < 0:
+        short_score += w_macd - 2;  gruende_short.append('MACD bärisches Momentum')
 
-    # EMA-Trend (kurzfristig)
+    # ── 3. EMA-Trend (kurzfristig) ───────────────────────────────────────────
     if aktuell > ema20 > ema50:
         long_score += 2;  gruende_long.append('Aufwärtstrend (Preis > EMA20 > EMA50)')
     elif aktuell < ema20 < ema50:
         short_score += 2; gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
 
-    # EMA200 – übergeordneter Trend (täglich für Intraday, Intervall-basiert für Swing)
+    # ── 4. EMA200 (übergeordneter Trend) ─────────────────────────────────────
     if aktuell > ema200:
         long_score  += 2; gruende_long.append(f'Über EMA200 ({ema200:.2f}) – übergeordnet bullisch')
     else:
         short_score += 2; gruende_short.append(f'Unter EMA200 ({ema200:.2f}) – übergeordnet bärisch')
 
-    # Fibonacci-Position (nur für Swing-Charts, nicht Intraday)
-    if w_fib > 0:
+    # ── 5. Higher-Timeframe-Konfluenz (großer Edge) ──────────────────────────
+    if htf_trend == 'bullisch':
+        long_score  += w_htf; gruende_long.append('Higher-Timeframe-Trend bullisch (Konfluenz)')
+    elif htf_trend == 'baerisch':
+        short_score += w_htf; gruende_short.append('Higher-Timeframe-Trend bärisch (Konfluenz)')
+
+    # ── 6. Struktur-Nähe (PDH/PDL/VWAP-Bänder) bzw. Fib-Position ─────────────
+    if w_struk > 0:
+        # Nähe zu Support = bullisch (Bounce-Setup), Nähe zu Resistance = bärisch
+        if abstand_sup_pct < 0.4 and abstand_sup_pct < abstand_res_pct:
+            long_score += w_struk
+            gruende_long.append(f'Preis direkt auf {sup_label or "Support"} ({naechster_support:.2f})')
+        elif abstand_sup_pct < 1.0 and abstand_sup_pct < abstand_res_pct:
+            long_score += w_struk - 1
+            gruende_long.append(f'Nah am {sup_label or "Support"} ({naechster_support:.2f})')
+        elif abstand_res_pct < 0.4 and abstand_res_pct < abstand_sup_pct:
+            short_score += w_struk
+            gruende_short.append(f'Preis direkt unter {res_label or "Widerstand"} ({naechste_resistance:.2f})')
+        elif abstand_res_pct < 1.0 and abstand_res_pct < abstand_sup_pct:
+            short_score += w_struk - 1
+            gruende_short.append(f'Nah am {res_label or "Widerstand"} ({naechste_resistance:.2f})')
+    elif w_fib > 0:
         if abstand_sup_pct < abstand_res_pct and abstand_sup_pct < 1.5:
             long_score += w_fib;  gruende_long.append(f'Nah am Fib-Support ({naechster_support:.2f})')
         elif abstand_res_pct < abstand_sup_pct and abstand_res_pct < 1.5:
             short_score += w_fib; gruende_short.append(f'Nah am Fib-Widerstand ({naechste_resistance:.2f})')
 
-    # VWAP – dominanter Intraday-Indikator
+    # ── 7. VWAP-Bias ─────────────────────────────────────────────────────────
     if vwap > 0:
         if aktuell > vwap * 1.002:
             long_score += w_vwap;  gruende_long.append(f'Über VWAP ({vwap:.2f}) – bullische Bias')
         elif aktuell < vwap * 0.998:
             short_score += w_vwap; gruende_short.append(f'Unter VWAP ({vwap:.2f}) – bärische Bias')
 
-    # ADX – Trend-Stärke
+    # ── 8. ADX – Trend-Stärke ────────────────────────────────────────────────
     if adx > 20:
         if plus_di > minus_di:
             long_score += 2;  gruende_long.append(f'ADX {adx:.0f}: Aufwärtstrend bestätigt')
         else:
             short_score += 2; gruende_short.append(f'ADX {adx:.0f}: Abwärtstrend bestätigt')
 
-    # Bollinger Bands
+    # ── 9. Bollinger Bands (Extrem-Zonen) ────────────────────────────────────
     if bb_pos <= 0.1:
         long_score += 2;  gruende_long.append('Am unteren Bollinger Band – Reversal-Zone')
     elif bb_pos >= 0.9:
         short_score += 2; gruende_short.append('Am oberen Bollinger Band – Reversal-Zone')
 
-    # Stochastic
+    # ── 10. Stochastic (NUR als Konfluenz mit RSI – sonst redundant) ─────────
     sk   = ind.get('stoch_k', 50)
     sk_p = ind.get('stoch_k_prev', sk)
-    if sk < 20 and sk > sk_p:
-        long_score += w_stoch;      gruende_long.append(f'Stochastic dreht aufwärts aus überverkaufter Zone ({sk:.0f})')
-    elif sk < 20:
-        long_score += w_stoch - 1;  gruende_long.append(f'Stochastic überverkauft ({sk:.0f})')
-    elif sk > 80 and sk < sk_p:
-        short_score += w_stoch;     gruende_short.append(f'Stochastic dreht abwärts aus überkaufter Zone ({sk:.0f})')
-    elif sk > 80:
-        short_score += w_stoch - 1; gruende_short.append(f'Stochastic überkauft ({sk:.0f})')
+    # Bonus nur wenn RSI ebenfalls Extrem zeigt → echte Konfluenz
+    if sk < 20 and sk > sk_p and rsi < 40:
+        long_score += 2;  gruende_long.append(f'Stochastic dreht aus überverkaufter Zone ({sk:.0f}) + RSI-Konfluenz')
+    elif sk > 80 and sk < sk_p and rsi > 60:
+        short_score += 2; gruende_short.append(f'Stochastic dreht aus überkaufter Zone ({sk:.0f}) + RSI-Konfluenz')
 
-    # Swing-Richtung
+    # ── 11. Swing-Richtung (Kontext) ─────────────────────────────────────────
     if richtung == 'aufwärts': long_score  += 1
     else:                      short_score += 1
 
-    # Candlestick- & Chart-Muster
+    # ── 12. Candlestick- & Chart-Muster ──────────────────────────────────────
     for km in (kerzen_muster or []):
         pts = max(-3, min(3, km['score'] // 4))
         if pts > 0:
@@ -1474,7 +1776,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         elif pts < 0:
             short_score += abs(pts); gruende_short.append(cm['text'])
 
-    # Volumen-Bestätigung (amplifiziert die führende Seite)
+    # ── 13. Volumen-Bestätigung ──────────────────────────────────────────────
     vr = ind.get('volumen_ratio', 1.0)
     if vr >= 2.0:
         if long_score >= short_score:
@@ -1487,7 +1789,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         else:
             short_score += 2; gruende_short.append(f'Überdurchschnittliches Volumen ({vr:.1f}x)')
 
-    # Gesamtbild
+    # ── 14. Gesamtbild ──────────────────────────────────────────────────────
     if bullisch_pct >= 65:
         long_score += 3;  gruende_long.append(f'Gesamtanalyse bullisch ({bullisch_pct:.0f}%)')
     elif bullisch_pct >= 55:
@@ -1498,44 +1800,62 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         short_score += 1
 
     dt_richtung = 'LONG' if long_score >= short_score else 'SHORT'
-    total    = long_score + short_score or 1
-    staerke  = round(max(long_score, short_score) / total * 100)
-    gruende  = gruende_long if dt_richtung == 'LONG' else gruende_short
+    total       = long_score + short_score or 1
+    staerke     = round(max(long_score, short_score) / total * 100)
+    gruende     = gruende_long if dt_richtung == 'LONG' else gruende_short
     widerspruch = (dt_richtung == 'LONG'  and bullisch_pct < 40) or \
                   (dt_richtung == 'SHORT' and bullisch_pct > 60)
 
-    # ── Preisziele (volatilitätsbasiert mit Fibonacci-Confluence) ──────────────
-    # Ziel-Chance/Risiko-Verhältnis: der Take-Profit muss mindestens das
-    # ZIEL_RR-fache des Stop-Abstands entfernt sein, sonst lohnt der Trade nicht.
-    ZIEL_RR = 2.0
+    # ── SL/TP — STRUKTURBASIERT statt reiner ATR-Mathematik ──────────────────
+    # Empirisch belegt: Stops unter dem letzten Swing-Tief werden seltener von
+    # Stop-Hunting-Spikes ausgelöst als reine ATR-Stops.
+    ZIEL_RR = 2.0  # Mindest-RR: bei 40% Win-Rate ist 2:1 noch profitabel
 
-    # Risiko-Einheit: Bei Intraday die durchschnittliche Tagesspanne (ADR) als
-    # Maßstab – die ATR der kleinen Kerzen wäre für Tagesziele zu eng. Sonst
-    # (Swing-Charts) die ATR der Tages-/Wochenkerzen.
     if intraday and tagesvol_pct:
         adr_abs   = aktuell * tagesvol_pct / 100.0
-        risk_unit = adr_abs * 0.25          # Stop ~1/4 der Tagesspanne
-        tp_cap    = adr_abs * 0.9           # Ziel realistisch im Tagesrange halten
+        risk_unit = adr_abs * 0.25
+        tp_cap    = adr_abs * 0.9
     else:
         adr_abs   = None
         risk_unit = (atr if atr and atr > 0 else aktuell * 0.005) * 1.2
         tp_cap    = None
 
-    if dt_richtung == 'LONG':
-        # Stop-Loss unter Support, Distanz auf [0.5 … 1.5]×risk_unit begrenzt
-        fib_sl_dist = max(0.0, aktuell - naechster_support)
-        sl_dist     = max(risk_unit * 0.5, min(fib_sl_dist + risk_unit * 0.3, risk_unit * 1.5))
-        stop_loss   = aktuell - sl_dist
+    # Strukturlevel (letztes Swing-Tief/-Hoch) als SL-Anker
+    swing_tief_lokal = finde_letztes_swing_tief(df, fenster=3, max_back=20) if df is not None else 0
+    swing_hoch_lokal = finde_letztes_swing_hoch(df, fenster=3, max_back=20) if df is not None else 0
 
-        # Take-Profit: nächster Widerstand, mind. ZIEL_RR × Risiko, im Tagesrange
+    if dt_richtung == 'LONG':
+        # SL: bevorzugt unter letztem Swing-Tief; sonst unter Support
+        kandidaten_sl = []
+        if 0 < swing_tief_lokal < aktuell:
+            kandidaten_sl.append(swing_tief_lokal - atr * 0.2)
+        if 0 < naechster_support < aktuell:
+            kandidaten_sl.append(naechster_support - atr * 0.3)
+        # Höchster (= engster) Kandidat, der noch unter aktuell liegt
+        if kandidaten_sl:
+            stop_loss = max(min(kandidaten_sl), aktuell - risk_unit * 1.5)
+            stop_loss = min(stop_loss, aktuell - risk_unit * 0.4)  # Mindestabstand
+        else:
+            stop_loss = aktuell - risk_unit
+        sl_dist = aktuell - stop_loss
+
+        # TP: nächster Widerstand, mind. 2× SL-Distanz, max. Tagesrange
         tp_dist = max(naechste_resistance - aktuell, sl_dist * ZIEL_RR)
         if tp_cap:
             tp_dist = min(tp_dist, tp_cap)
         take_profit = aktuell + tp_dist
     else:
-        fib_sl_dist = max(0.0, naechste_resistance - aktuell)
-        sl_dist     = max(risk_unit * 0.5, min(fib_sl_dist + risk_unit * 0.3, risk_unit * 1.5))
-        stop_loss   = aktuell + sl_dist
+        kandidaten_sl = []
+        if swing_hoch_lokal > aktuell > 0:
+            kandidaten_sl.append(swing_hoch_lokal + atr * 0.2)
+        if naechste_resistance > aktuell > 0:
+            kandidaten_sl.append(naechste_resistance + atr * 0.3)
+        if kandidaten_sl:
+            stop_loss = min(max(kandidaten_sl), aktuell + risk_unit * 1.5)
+            stop_loss = max(stop_loss, aktuell + risk_unit * 0.4)
+        else:
+            stop_loss = aktuell + risk_unit
+        sl_dist = stop_loss - aktuell
 
         tp_dist = max(aktuell - naechster_support, sl_dist * ZIEL_RR)
         if tp_cap:
@@ -1546,39 +1866,105 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     tp_pct = max(0.01, tp_dist / aktuell * 100 if aktuell > 0 else 0.01)
     rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
 
-    # ── Gates ────────────────────────────────────────────────────────────────
-    kein_signal = abs(long_score - short_score) <= 1
+    # Partielle Take-Profit-Marken (1R / 2R / 3R)
+    if dt_richtung == 'LONG':
+        tp_1r = round(aktuell + sl_dist * 1.0, 4)
+        tp_2r = round(aktuell + sl_dist * 2.0, 4)
+        tp_3r = round(aktuell + sl_dist * 3.0, 4)
+    else:
+        tp_1r = round(aktuell - sl_dist * 1.0, 4)
+        tp_2r = round(aktuell - sl_dist * 2.0, 4)
+        tp_3r = round(aktuell - sl_dist * 3.0, 4)
 
-    # R:R-Gate für alle Zeitebenen: unter 1.5:1 ist das Verhältnis zu schlecht
-    # (z.B. wenn die Tagesvolatilität kein vernünftiges Ziel mehr zulässt).
-    if rr < 1.5:
+    # ── HARD-GATES (jeder gilt – nicht überstimmbar) ─────────────────────────
+    kein_signal = False
+    gate_gruende = []
+
+    # 1. Score-Differenz zu gering → keine Klarheit
+    if abs(long_score - short_score) <= 2:
         kein_signal = True
+        gate_gruende.append('Score-Differenz LONG/SHORT zu gering')
 
-    # ADX-Gate: kein Signal bei extremem Range-Markt
-    adx_min = 10 if intraday else 12
+    # 2. Mindeststärke 60% (nur klare Setups)
+    if staerke < 60:
+        kein_signal = True
+        gate_gruende.append(f'Setup-Stärke {staerke}% < 60% – Konfluenz zu schwach')
+
+    # 3. R:R-Gate (2:1 statt 1.5:1)
+    if rr < ZIEL_RR:
+        kein_signal = True
+        gate_gruende.append(f'R:R {rr}:1 < {ZIEL_RR}:1')
+
+    # 4. ADX-Gate: kein Signal in extremen Range-Märkten
+    adx_min = 15 if intraday else 18
     if adx < adx_min:
         kein_signal = True
+        gate_gruende.append(f'ADX {adx:.0f} < {adx_min} – Range-Markt')
 
-    # VWAP-Gate: LONG nur über VWAP, SHORT nur unter VWAP
+    # 5. VWAP-Gate: LONG nur über VWAP, SHORT nur unter VWAP
     if vwap > 0:
-        if dt_richtung == 'LONG'  and aktuell < vwap * 0.995: kein_signal = True
-        if dt_richtung == 'SHORT' and aktuell > vwap * 1.005: kein_signal = True
+        if dt_richtung == 'LONG'  and aktuell < vwap * 0.995:
+            kein_signal = True; gate_gruende.append('LONG aber unter VWAP')
+        if dt_richtung == 'SHORT' and aktuell > vwap * 1.005:
+            kein_signal = True; gate_gruende.append('SHORT aber über VWAP')
+
+    # 6. Higher-Timeframe-Veto (großer Edge!)
+    if htf_trend == 'baerisch' and dt_richtung == 'LONG':
+        kein_signal = True
+        gate_gruende.append('LONG gegen bärischen Higher-Timeframe-Trend')
+    if htf_trend == 'bullisch' and dt_richtung == 'SHORT':
+        kein_signal = True
+        gate_gruende.append('SHORT gegen bullischen Higher-Timeframe-Trend')
+
+    # 7. Zeitfilter (Open/Close-Phasen)
+    if not ist_handelszeit:
+        kein_signal = True
+        if zeit_grund:
+            gate_gruende.append(zeit_grund)
+
+    # 8. Earnings-Veto
+    if earnings_warnung:
+        kein_signal = True
+        gate_gruende.append('Earnings in ±1 Tag – Gap-Risiko zu hoch')
+
+    # 9. Vola-Spike-Veto
+    if df is not None:
+        ok_vola, grund_vola = pruefe_volatilitaets_spike(df, atr)
+        if not ok_vola:
+            kein_signal = True
+            gate_gruende.append(grund_vola)
+
+    # 10. Stop-Loss-Sanity: SL darf nicht "falsch herum" liegen
+    if dt_richtung == 'LONG' and stop_loss >= aktuell:
+        kein_signal = True; gate_gruende.append('SL-Berechnung fehlerhaft')
+    if dt_richtung == 'SHORT' and stop_loss <= aktuell:
+        kein_signal = True; gate_gruende.append('SL-Berechnung fehlerhaft')
 
     return {
-        'richtung':    dt_richtung,
-        'kein_signal': kein_signal,
-        'staerke':     staerke,
-        'einstieg':    round(aktuell,      2),
-        'take_profit': round(take_profit,  2),
-        'stop_loss':   round(stop_loss,    2),
-        'tp_pct':      round(tp_pct,       2),
-        'sl_pct':      round(sl_pct,       2),
-        'rr':          rr,
-        'gruende':     gruende,
-        'long_score':  long_score,
-        'widerspruch': widerspruch,
-        'short_score': short_score,
+        'richtung':     dt_richtung,
+        'kein_signal':  kein_signal,
+        'staerke':      staerke,
+        'einstieg':     round(aktuell,     2),
+        'take_profit':  round(take_profit, 2),
+        'stop_loss':    round(stop_loss,   2),
+        'tp_pct':       round(tp_pct,      2),
+        'sl_pct':       round(sl_pct,      2),
+        'rr':           rr,
+        'tp_1r':        tp_1r,
+        'tp_2r':        tp_2r,
+        'tp_3r':        tp_3r,
+        'gruende':      gruende,
+        'long_score':   long_score,
+        'short_score':  short_score,
+        'widerspruch':  widerspruch,
         'tagesvol_pct': round(tagesvol_pct, 2) if tagesvol_pct else None,
+        'sr_quelle':    sr_quelle,
+        'support':      round(naechster_support,   2),
+        'resistance':   round(naechste_resistance, 2),
+        'support_label':    sup_label,
+        'resistance_label': res_label,
+        'htf_trend':    htf_trend,
+        'gate_gruende': gate_gruende,
     }
 
 # ── Handelssignal Algorithmus ─────────────────────────────────────────────────
@@ -2050,12 +2436,26 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
         signal = berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief,
                                          kerzen_muster, chart_muster)
 
+        # Daytrade-Kontext: Strukturlevels, HTF-Trend, Gates
+        intraday_struktur = berechne_intraday_strukturlevels(df) if intraday else {}
+        htf_trend         = hole_htf_trend(ticker, cfg['interval']) if intraday else 'neutral'
+        ist_handelszeit, zeit_grund = pruefe_zeitfilter(df, intraday)
+        earnings_ok, _    = pruefe_earnings_naehe(ticker, tage_fenster=1) if intraday else (True, '')
+        earnings_warnung  = not earnings_ok
+
         # Daytrading Signal
         daytrade = berechne_daytrade_signal(levels, ind, aktuell, richtung, hoch, tief,
                                              wkeit, intraday,
                                              kerzen_muster=kerzen_muster,
                                              chart_muster=chart_muster,
-                                             tagesvol_pct=tagesvol_pct)
+                                             tagesvol_pct=tagesvol_pct,
+                                             df=df, ticker=ticker,
+                                             intervall=cfg['interval'],
+                                             intraday_struktur=intraday_struktur,
+                                             htf_trend=htf_trend,
+                                             earnings_warnung=earnings_warnung,
+                                             ist_handelszeit=ist_handelszeit,
+                                             zeit_grund=zeit_grund)
 
         # Chart (nur wenn benötigt)
         if mit_chart:
@@ -2138,6 +2538,8 @@ def analysiere(ticker: str, periode: str = '1y', mit_chart: bool = True):
             'daytrade':      daytrade,
             'kerzen_muster': kerzen_muster,
             'chart_muster':  chart_muster,
+            'intraday_struktur': intraday_struktur,
+            'htf_trend':         htf_trend,
             'fehler':        None,
         }
     except Exception as e:
