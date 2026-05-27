@@ -1512,8 +1512,16 @@ def pruefe_volatilitaets_spike(df: pd.DataFrame, atr: float) -> tuple:
 
 def pruefe_earnings_naehe(ticker: str, tage_fenster: int = 1) -> tuple:
     """Prüft, ob Earnings im ±tage_fenster sind. Earnings-Gaps killen Stop-Loss.
-    Returns: (handelbar: bool, grund: str)"""
+    Returns: (handelbar: bool, grund: str)
+
+    Skippt Krypto (-USD-Suffix) und Indizes (^-Prefix oder bekannte Index-Symbole),
+    da diese keine Earnings haben und der yfinance-Call dort sinnlos Quota verbrennt
+    und Stderr-Warnungen erzeugt."""
     if not ticker:
+        return True, ''
+    t = ticker.upper()
+    if (t.endswith('-USD') or t.endswith('-EUR') or t.startswith('^')
+            or t in {'DAX', 'SPX', 'NDX', 'DJI', 'GOLD', 'OIL'}):
         return True, ''
     try:
         tk = yf.Ticker(ticker)
@@ -1703,10 +1711,17 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         short_score += 2; gruende_short.append(f'Unter EMA200 ({ema200:.2f}) – übergeordnet bärisch')
 
     # ── 5. Higher-Timeframe-Konfluenz (großer Edge) ──────────────────────────
+    # Auf dem kleinsten Intervall (5m) sind Mean-Reversion-Trades gegen den
+    # HTF-Trend nachweislich profitabel — dort nur Score-Strafe statt Veto.
+    htf_weiches_veto = (intervall == '5m')
     if htf_trend == 'bullisch':
         long_score  += w_htf; gruende_long.append('Higher-Timeframe-Trend bullisch (Konfluenz)')
+        if htf_weiches_veto:
+            short_score = max(0, short_score - 3)  # 5m: weicher Counter-Trend-Malus
     elif htf_trend == 'baerisch':
         short_score += w_htf; gruende_short.append('Higher-Timeframe-Trend bärisch (Konfluenz)')
+        if htf_weiches_veto:
+            long_score = max(0, long_score - 3)
 
     # ── 6. Struktur-Nähe (PDH/PDL/VWAP-Bänder) bzw. Fib-Position ─────────────
     if w_struk > 0:
@@ -1908,13 +1923,14 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         if dt_richtung == 'SHORT' and aktuell > vwap * 1.005:
             kein_signal = True; gate_gruende.append('SHORT aber über VWAP')
 
-    # 6. Higher-Timeframe-Veto (großer Edge!)
-    if htf_trend == 'baerisch' and dt_richtung == 'LONG':
-        kein_signal = True
-        gate_gruende.append('LONG gegen bärischen Higher-Timeframe-Trend')
-    if htf_trend == 'bullisch' and dt_richtung == 'SHORT':
-        kein_signal = True
-        gate_gruende.append('SHORT gegen bullischen Higher-Timeframe-Trend')
+    # 6. Higher-Timeframe-Veto — nur auf 15m+ als Hard-Gate, auf 5m als Soft-Malus
+    if intervall != '5m':
+        if htf_trend == 'baerisch' and dt_richtung == 'LONG':
+            kein_signal = True
+            gate_gruende.append('LONG gegen bärischen Higher-Timeframe-Trend')
+        if htf_trend == 'bullisch' and dt_richtung == 'SHORT':
+            kein_signal = True
+            gate_gruende.append('SHORT gegen bullischen Higher-Timeframe-Trend')
 
     # 7. Zeitfilter (Open/Close-Phasen)
     if not ist_handelszeit:
