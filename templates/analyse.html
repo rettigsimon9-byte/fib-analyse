@@ -19,6 +19,10 @@
   <span class="stock-name">{{ d.name }}</span>
   <span class="waehrung-badge">{{ d.waehrung_symbol }} {{ d.waehrung }}</span>
   <div class="ms-auto d-flex align-items-center gap-2">
+    <button id="autorefresh-btn" onclick="toggleAutoRefresh()" class="btn btn-sm btn-ghost" title="Seite automatisch alle 60 Sek. neu laden">
+      <i id="autorefresh-icon" class="bi bi-arrow-clockwise"></i>
+      <span id="autorefresh-label">Auto: AUS</span>
+    </button>
     <a href="/multi?ticker={{ d.ticker }}" class="btn btn-sm btn-ghost" title="Multi-Timeframe Ansicht">
       <i class="bi bi-layers me-1"></i>Multi-TF
     </a>
@@ -284,6 +288,12 @@
       <div class="daytrade-title">
         <i class="bi bi-lightning-fill me-1"></i> Daytrading Signal
         <span class="text-muted small ms-2">(Intraday — Position heute schließen)</span>
+        <span class="text-muted small ms-2" title="Zeitpunkt der zugrundeliegenden Kursdaten">
+          <i class="bi bi-clock-history ms-2 me-1"></i>Daten: <span class="text-light fw-mono">{{ d.datenstand }} Uhr</span>
+        </span>
+        <span class="text-muted small ms-2" title="Zeitpunkt der Analyse-Erstellung">
+          <i class="bi bi-arrow-repeat me-1"></i>Analyse: <span class="text-light fw-mono">{{ d.abgerufen }} Uhr</span>
+        </span>
       </div>
       {% if dt.kein_signal %}
         <span class="daytrade-badge badge-neutral">⚪ KEIN KLARES SIGNAL</span>
@@ -642,6 +652,58 @@
   }
 
   updateWatchlistBtn();
+
+  // ── Auto-Refresh (60 Sek.) ────────────────────────────────────────────────
+  const REFRESH_INTERVAL_SEC = 60;
+  let refreshTimer = null;
+  let refreshCountdown = REFRESH_INTERVAL_SEC;
+
+  function autoRefreshEnabled() {
+    return localStorage.getItem('autoRefresh') === '1';
+  }
+
+  function updateAutoRefreshBtn() {
+    const on = autoRefreshEnabled();
+    const icon = document.getElementById('autorefresh-icon');
+    const label = document.getElementById('autorefresh-label');
+    const btn = document.getElementById('autorefresh-btn');
+    if (on) {
+      icon.className = 'bi bi-arrow-clockwise text-success';
+      label.textContent = 'Auto: ' + refreshCountdown + 's';
+      btn.classList.add('text-success');
+    } else {
+      icon.className = 'bi bi-arrow-clockwise';
+      label.textContent = 'Auto: AUS';
+      btn.classList.remove('text-success');
+    }
+  }
+
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshCountdown = REFRESH_INTERVAL_SEC;
+    updateAutoRefreshBtn();
+    refreshTimer = setInterval(() => {
+      refreshCountdown--;
+      if (refreshCountdown <= 0) {
+        window.location.reload();
+        return;
+      }
+      updateAutoRefreshBtn();
+    }, 1000);
+  }
+
+  function stopAutoRefresh() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    updateAutoRefreshBtn();
+  }
+
+  function toggleAutoRefresh() {
+    const newState = !autoRefreshEnabled();
+    localStorage.setItem('autoRefresh', newState ? '1' : '0');
+    if (newState) startAutoRefresh(); else stopAutoRefresh();
+  }
+
+  if (autoRefreshEnabled()) startAutoRefresh(); else updateAutoRefreshBtn();
 
   // ── Muster-Daten aus Jinja2 ────────────────────────────────────────────────
   const KERZEN_MUSTER = {{ d.kerzen_muster | tojson }};

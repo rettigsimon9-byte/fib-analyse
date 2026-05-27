@@ -1896,14 +1896,14 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     gate_gruende = []
 
     # 1. Score-Differenz zu gering → keine Klarheit
-    if abs(long_score - short_score) <= 2:
+    if abs(long_score - short_score) <= 1:
         kein_signal = True
         gate_gruende.append('Score-Differenz LONG/SHORT zu gering')
 
-    # 2. Mindeststärke 60% (nur klare Setups)
-    if staerke < 60:
+    # 2. Mindeststärke 58% (nur klare Setups)
+    if staerke < 58:
         kein_signal = True
-        gate_gruende.append(f'Setup-Stärke {staerke}% < 60% – Konfluenz zu schwach')
+        gate_gruende.append(f'Setup-Stärke {staerke}% < 58% – Konfluenz zu schwach')
 
     # 3. R:R-Gate (2:1 statt 1.5:1)
     if rr < ZIEL_RR:
@@ -1911,7 +1911,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         gate_gruende.append(f'R:R {rr}:1 < {ZIEL_RR}:1')
 
     # 4. ADX-Gate: kein Signal in extremen Range-Märkten
-    adx_min = 15 if intraday else 18
+    adx_min = 12 if intraday else 18
     if adx < adx_min:
         kein_signal = True
         gate_gruende.append(f'ADX {adx:.0f} < {adx_min} – Range-Markt')
