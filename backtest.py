@@ -175,9 +175,21 @@ def backtest_daytrade(ticker: str, periode: str = '5d',
         return {'fehler': f'Zu wenig Daten ({0 if df_full is None else len(df_full)} Bars, min {min_warmup + 10})',
                 'ticker': ticker, 'periode': periode}
 
-    # HTF-Trend einmalig holen (im Backtest pro Run statt pro Bar — sonst Quota-Hit
-    # und der HTF-Trend ändert sich auf Stunden-/Tagesbasis kaum innerhalb eines Backtest-Fensters)
-    htf_trend = hole_htf_trend(ticker, cfg['interval']) if intraday else 'neutral'
+    # HTF-Trend-Cache für Backtest: pro Handelstag neu berechnen statt einmalig.
+    # hole_htf_trend hat intern einen 10-min-Cache — im Backtest simulieren wir
+    # einen täglichen Refresh, indem wir den Cache-Key manuell invalidieren.
+    _htf_trend_cache_bt: dict = {}  # date_str → trend
+
+    def _get_htf_trend_bt(df_sicht):
+        if not intraday:
+            return 'neutral'
+        try:
+            tag = str(df_sicht.index[-1].date())
+        except Exception:
+            tag = ''
+        if tag not in _htf_trend_cache_bt:
+            _htf_trend_cache_bt[tag] = hole_htf_trend(ticker, cfg['interval'])
+        return _htf_trend_cache_bt[tag]
 
     # Timeout pro Intervall — vorher war 5 Bars für daily zu kurz: TPs lagen
     # bei 2× SL-Distanz, was in 5 Tagesbars praktisch nie erreicht wurde.
@@ -206,7 +218,7 @@ def backtest_daytrade(ticker: str, periode: str = '5d',
 
         df_sicht = df_full.iloc[:i + 1]
         try:
-            dt = _signal_aus_sicht(df_sicht, ticker, cfg, htf_trend)
+            dt = _signal_aus_sicht(df_sicht, ticker, cfg, _get_htf_trend_bt(df_sicht))
         except Exception:
             continue
 
@@ -281,7 +293,7 @@ def backtest_daytrade(ticker: str, periode: str = '5d',
         'periode':       periode,
         'periode_label': cfg['label'],
         'intraday':      intraday,
-        'htf_trend':     htf_trend,
+        'htf_trend':     'tagesbasiert' if intraday else 'neutral',
         'bars_total':    n_bars,
         'bars_getestet': bis - min_warmup,
         'trades':        trades,

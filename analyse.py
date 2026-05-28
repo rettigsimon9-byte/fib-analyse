@@ -1685,7 +1685,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         long_score += w_rsi // 2; gruende_long.append(f'RSI überverkauft ({rsi:.0f})')
     elif rsi > 70:
         short_score += w_rsi;     gruende_short.append(f'RSI stark überkauft ({rsi:.0f})')
-    elif rsi > 60:
+    elif rsi > 65:
         short_score += w_rsi // 2; gruende_short.append(f'RSI überkauft ({rsi:.0f})')
 
     # ── 2. MACD (echtes Kreuz) ───────────────────────────────────────────────
@@ -1705,10 +1705,12 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         short_score += 2; gruende_short.append('Abwärtstrend (Preis < EMA20 < EMA50)')
 
     # ── 4. EMA200 (übergeordneter Trend) ─────────────────────────────────────
-    if aktuell > ema200:
-        long_score  += 2; gruende_long.append(f'Über EMA200 ({ema200:.2f}) – übergeordnet bullisch')
+    # Intraday: tagesbasierten EMA200 verwenden (Intraday-EMA200 hat zu wenig Bars)
+    ema200_fuer_scoring = ind.get('ema200_daily', ema200) if intraday and ind.get('ema200_daily', 0) > 0 else ema200
+    if aktuell > ema200_fuer_scoring:
+        long_score  += 2; gruende_long.append(f'Über EMA200d ({ema200_fuer_scoring:.2f}) – übergeordnet bullisch')
     else:
-        short_score += 2; gruende_short.append(f'Unter EMA200 ({ema200:.2f}) – übergeordnet bärisch')
+        short_score += 2; gruende_short.append(f'Unter EMA200d ({ema200_fuer_scoring:.2f}) – übergeordnet bärisch')
 
     # ── 5. Higher-Timeframe-Konfluenz (großer Edge) ──────────────────────────
     # Auf dem kleinsten Intervall (5m) sind Mean-Reversion-Trades gegen den
@@ -1746,9 +1748,9 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
 
     # ── 7. VWAP-Bias ─────────────────────────────────────────────────────────
     if vwap > 0:
-        if aktuell > vwap * 1.002:
+        if aktuell > vwap * 1.001:
             long_score += w_vwap;  gruende_long.append(f'Über VWAP ({vwap:.2f}) – bullische Bias')
-        elif aktuell < vwap * 0.998:
+        elif aktuell < vwap * 0.999:
             short_score += w_vwap; gruende_short.append(f'Unter VWAP ({vwap:.2f}) – bärische Bias')
 
     # ── 8. ADX – Trend-Stärke ────────────────────────────────────────────────
@@ -1849,7 +1851,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         # Höchster (= engster) Kandidat, der noch unter aktuell liegt
         if kandidaten_sl:
             stop_loss = max(min(kandidaten_sl), aktuell - risk_unit * 1.5)
-            stop_loss = min(stop_loss, aktuell - risk_unit * 0.4)  # Mindestabstand
+            stop_loss = min(stop_loss, aktuell - risk_unit * 1.0)  # Mindestabstand: 1× ATR
         else:
             stop_loss = aktuell - risk_unit
         sl_dist = aktuell - stop_loss
@@ -1867,7 +1869,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
             kandidaten_sl.append(naechste_resistance + atr * 0.3)
         if kandidaten_sl:
             stop_loss = min(max(kandidaten_sl), aktuell + risk_unit * 1.5)
-            stop_loss = max(stop_loss, aktuell + risk_unit * 0.4)
+            stop_loss = max(stop_loss, aktuell + risk_unit * 1.0)  # Mindestabstand: 1× ATR
         else:
             stop_loss = aktuell + risk_unit
         sl_dist = stop_loss - aktuell
@@ -2013,8 +2015,8 @@ def berechne_handelssignal(df, levels, ind, aktuell, richtung, hoch, tief,
     bedingungen   = []
 
     alle_preise = sorted(levels.values())
-    supports    = sorted([p for p in alle_preise if p <= aktuell * 1.005], reverse=True)
-    resistances = sorted([p for p in alle_preise if p >= aktuell * 0.995])
+    supports    = sorted([p for p in alle_preise if p < aktuell], reverse=True)
+    resistances = sorted([p for p in alle_preise if p > aktuell])
 
     naechster_support   = supports[0]    if supports    else tief
     naechste_resistance = resistances[0] if resistances else hoch
