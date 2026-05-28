@@ -7,18 +7,17 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body class="dark-body">
 
-<!-- Topbar -->
 <nav class="analyse-topbar">
-  <a href="/" class="btn btn-sm btn-ghost me-3">
-    <i class="bi bi-arrow-left"></i> Zurück
-  </a>
+  <a href="/" class="btn btn-sm btn-ghost me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
   <span class="ticker-badge"><i class="bi bi-journal-text me-1"></i>Trade Journal</span>
   <div class="ms-auto d-flex align-items-center gap-2">
-    <button onclick="checkTrades()" class="btn btn-sm btn-ghost" title="Offene Trades gegen aktuelle Kurse prüfen">
-      <i class="bi bi-arrow-repeat me-1"></i> Trades prüfen
+    <a href="/scanner" class="btn btn-sm btn-fib"><i class="bi bi-radar me-1"></i>Scanner</a>
+    <button onclick="checkTrades()" class="btn btn-sm btn-ghost">
+      <i class="bi bi-arrow-repeat me-1"></i>Trades prüfen
     </button>
     <span id="check-msg" class="small text-muted"></span>
   </div>
@@ -26,7 +25,7 @@
 
 <div class="container-fluid px-3 pt-3 pb-5">
 
-  <!-- Statistiken -->
+  <!-- Stat-Karten -->
   <div class="row g-3 mb-4">
     <div class="col-6 col-md-2">
       <div class="journal-stat-card">
@@ -73,29 +72,61 @@
     </div>
   </div>
 
+  {% set abgeschlossen = trades | selectattr('outcome', 'ne', 'OFFEN') | list %}
+
+  {% if abgeschlossen | length >= 2 %}
+  <!-- Charts -->
+  <div class="row g-3 mb-4">
+
+    <!-- Equity-Kurve -->
+    <div class="col-12 col-lg-8">
+      <div class="dark-card p-3">
+        <div class="fw-semibold mb-2"><i class="bi bi-graph-up me-1"></i>Equity-Kurve (kumulativer P&L)</div>
+        <div id="chart-equity" style="height:240px"></div>
+      </div>
+    </div>
+
+    <!-- Wochentag -->
+    <div class="col-12 col-lg-4">
+      <div class="dark-card p-3">
+        <div class="fw-semibold mb-2"><i class="bi bi-calendar-week me-1"></i>P&L nach Wochentag</div>
+        <div id="chart-weekday" style="height:240px"></div>
+      </div>
+    </div>
+
+    <!-- Ticker-Performance -->
+    <div class="col-12 col-lg-6">
+      <div class="dark-card p-3">
+        <div class="fw-semibold mb-2"><i class="bi bi-bar-chart me-1"></i>Performance nach Ticker</div>
+        <div id="chart-ticker" style="height:240px"></div>
+      </div>
+    </div>
+
+    <!-- Stunden-Heatmap -->
+    <div class="col-12 col-lg-6">
+      <div class="dark-card p-3">
+        <div class="fw-semibold mb-2"><i class="bi bi-clock-history me-1"></i>Win-Rate nach Einstiegsstunde</div>
+        <div id="chart-hour" style="height:240px"></div>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+
   <!-- Trades Tabelle -->
   {% if trades %}
   <div class="dark-card p-0 overflow-hidden">
     <div class="p-3 border-bottom border-secondary d-flex align-items-center justify-content-between">
-      <span class="fw-semibold"><i class="bi bi-list-ul me-1"></i> Alle Trades</span>
-      <span class="small text-muted">{{ trades|length }} Einträge · automatische SL/TP-Prüfung</span>
+      <span class="fw-semibold"><i class="bi bi-list-ul me-1"></i>Alle Trades</span>
+      <span class="small text-muted">{{ trades|length }} Einträge · SL/TP wird automatisch geprüft</span>
     </div>
     <div class="table-responsive">
       <table class="table table-dark mb-0 journal-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Datum</th>
-            <th>Ticker</th>
-            <th>Richtung</th>
-            <th>Einstieg</th>
-            <th>Take Profit</th>
-            <th>Stop Loss</th>
-            <th>R:R</th>
-            <th>Outcome</th>
-            <th>P&L</th>
-            <th>Exit</th>
-            <th></th>
+            <th>#</th><th>Datum</th><th>Ticker</th><th>Richtung</th>
+            <th>Einstieg</th><th>Take Profit</th><th>Stop Loss</th>
+            <th>R:R</th><th>Outcome</th><th>P&L</th><th>Exit</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -104,9 +135,8 @@
             <td class="text-muted">{{ t.id }}</td>
             <td class="text-muted" style="white-space:nowrap">{{ t.gespeichert }}</td>
             <td>
-              <a href="/analyse?ticker={{ t.ticker }}&periode={{ t.periode }}" class="text-warning fw-bold text-decoration-none">
-                {{ t.ticker }}
-              </a>
+              <a href="/analyse?ticker={{ t.ticker }}&periode={{ t.periode }}"
+                 class="text-warning fw-bold text-decoration-none">{{ t.ticker }}</a>
               <span class="text-muted small ms-1">{{ t.periode }}</span>
             </td>
             <td>
@@ -118,22 +148,15 @@
             </td>
             <td class="fw-mono">{{ '%.2f'|format(t.einstieg) }}</td>
             <td class="fw-mono text-success">{{ '%.2f'|format(t.take_profit) }}
-              <span class="text-muted small">+{{ t.tp_pct }}%</span>
-            </td>
+              <span class="text-muted small">+{{ t.tp_pct }}%</span></td>
             <td class="fw-mono text-danger">{{ '%.2f'|format(t.stop_loss) }}
-              <span class="text-muted small">-{{ t.sl_pct }}%</span>
-            </td>
+              <span class="text-muted small">-{{ t.sl_pct }}%</span></td>
             <td class="{% if t.rr >= 2 %}text-success{% else %}text-warning{% endif %}">{{ t.rr }}:1</td>
             <td>
-              {% if t.outcome == 'WIN' %}
-                <span class="outcome-win">✅ WIN</span>
-              {% elif t.outcome == 'LOSS' %}
-                <span class="outcome-loss">❌ LOSS</span>
-              {% elif t.outcome == 'TIMEOUT' %}
-                <span class="outcome-timeout">⏱ TIMEOUT</span>
-              {% else %}
-                <span class="outcome-offen">⏳ OFFEN</span>
-              {% endif %}
+              {% if t.outcome == 'WIN' %}<span class="outcome-win">✅ WIN</span>
+              {% elif t.outcome == 'LOSS' %}<span class="outcome-loss">❌ LOSS</span>
+              {% elif t.outcome == 'TIMEOUT' %}<span class="outcome-timeout">⏱ TIMEOUT</span>
+              {% else %}<span class="outcome-offen">⏳ OFFEN</span>{% endif %}
             </td>
             <td class="fw-mono {% if t.pnl_pct and t.pnl_pct > 0 %}text-success{% elif t.pnl_pct and t.pnl_pct < 0 %}text-danger{% else %}text-muted{% endif %}">
               {% if t.pnl_pct is not none %}
@@ -147,9 +170,9 @@
               {% if t.outcome == 'OFFEN' %}
               <div class="d-flex gap-1">
                 <button onclick="manuellSchliessen({{ t.id }}, 'WIN')"
-                        class="btn btn-xs-period text-success" title="Als WIN markieren">✅</button>
+                        class="btn btn-xs-period text-success" title="WIN">✅</button>
                 <button onclick="manuellSchliessen({{ t.id }}, 'LOSS')"
-                        class="btn btn-xs-period text-danger" title="Als LOSS markieren">❌</button>
+                        class="btn btn-xs-period text-danger" title="LOSS">❌</button>
               </div>
               {% endif %}
               <button onclick="tradeLoeschen({{ t.id }})"
@@ -180,7 +203,154 @@
 
 </div>
 
+<!-- Chart-Daten als JSON -->
 <script>
+const TRADES = {{ trades | tojson }};
+
+const PLOTLY_LAYOUT = {
+  paper_bgcolor: 'transparent',
+  plot_bgcolor:  'transparent',
+  font:  { color: '#94a3b8', size: 11 },
+  margin: { l: 45, r: 10, t: 10, b: 40 },
+  xaxis: { gridcolor: '#1e293b', zeroline: false },
+  yaxis: { gridcolor: '#1e293b', zeroline: false },
+};
+
+const CFG = { displayModeBar: false, responsive: true };
+
+// ── 1. Equity-Kurve ──────────────────────────────────────────────────────────
+function renderEquity() {
+  const done = TRADES.filter(t => t.outcome !== 'OFFEN' && t.pnl_pct != null)
+                     .sort((a, b) => a.id - b.id);
+  if (done.length < 2) return;
+
+  let cum = 0;
+  const x = [], y = [], colors = [];
+  done.forEach(t => {
+    cum += t.pnl_pct;
+    x.push(t.gespeichert);
+    y.push(+cum.toFixed(3));
+    colors.push(cum >= 0 ? '#22c55e' : '#ef4444');
+  });
+
+  Plotly.newPlot('chart-equity', [{
+    x, y,
+    type: 'scatter', mode: 'lines+markers',
+    line:   { color: '#3b82f6', width: 2 },
+    marker: { color: colors, size: 6 },
+    fill: 'tozeroy',
+    fillcolor: 'rgba(59,130,246,0.08)',
+    hovertemplate: '%{x}<br><b>%{y:.2f}%</b><extra></extra>',
+  }], {
+    ...PLOTLY_LAYOUT,
+    yaxis: { ...PLOTLY_LAYOUT.yaxis, ticksuffix: '%' },
+    shapes: [{ type: 'line', x0: x[0], x1: x[x.length-1], y0: 0, y1: 0,
+               line: { color: '#475569', width: 1, dash: 'dot' } }],
+  }, CFG);
+}
+
+// ── 2. Wochentag ─────────────────────────────────────────────────────────────
+function renderWeekday() {
+  const tage = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const pnl  = [0,0,0,0,0,0,0];
+  const cnt  = [0,0,0,0,0,0,0];
+  TRADES.filter(t => t.outcome !== 'OFFEN' && t.pnl_pct != null).forEach(t => {
+    try {
+      const parts = t.gespeichert.split(' ')[0].split('.');
+      const d = new Date(parts[2], parts[1]-1, parts[0]);
+      const wd = (d.getDay() + 6) % 7; // 0=Mo
+      pnl[wd] += t.pnl_pct;
+      cnt[wd]++;
+    } catch {}
+  });
+  const avg = pnl.map((p, i) => cnt[i] ? +(p / cnt[i]).toFixed(2) : null);
+
+  Plotly.newPlot('chart-weekday', [{
+    x: tage, y: avg,
+    type: 'bar',
+    marker: { color: avg.map(v => v == null ? '#334155' : v >= 0 ? '#22c55e' : '#ef4444') },
+    hovertemplate: '%{x}: <b>%{y:.2f}%</b><extra></extra>',
+  }], {
+    ...PLOTLY_LAYOUT,
+    yaxis: { ...PLOTLY_LAYOUT.yaxis, ticksuffix: '%' },
+  }, CFG);
+}
+
+// ── 3. Ticker-Performance ─────────────────────────────────────────────────────
+function renderTicker() {
+  const map = {};
+  TRADES.filter(t => t.outcome !== 'OFFEN' && t.pnl_pct != null).forEach(t => {
+    if (!map[t.ticker]) map[t.ticker] = { sum: 0, n: 0 };
+    map[t.ticker].sum += t.pnl_pct;
+    map[t.ticker].n++;
+  });
+  const entries = Object.entries(map)
+    .map(([k, v]) => ({ ticker: k, avg: +(v.sum / v.n).toFixed(2), n: v.n }))
+    .sort((a, b) => b.avg - a.avg);
+  if (!entries.length) return;
+
+  Plotly.newPlot('chart-ticker', [{
+    x: entries.map(e => e.ticker),
+    y: entries.map(e => e.avg),
+    type: 'bar',
+    marker: { color: entries.map(e => e.avg >= 0 ? '#22c55e' : '#ef4444') },
+    hovertemplate: '%{x}<br>Ø <b>%{y:.2f}%</b><extra></extra>',
+  }], {
+    ...PLOTLY_LAYOUT,
+    yaxis: { ...PLOTLY_LAYOUT.yaxis, ticksuffix: '%' },
+  }, CFG);
+}
+
+// ── 4. Stunden-Winrate ────────────────────────────────────────────────────────
+function renderHour() {
+  const wins = new Array(24).fill(0);
+  const cnt  = new Array(24).fill(0);
+  TRADES.filter(t => t.outcome !== 'OFFEN').forEach(t => {
+    try {
+      const h = parseInt(t.gespeichert.split(' ')[1].split(':')[0]);
+      cnt[h]++;
+      if (t.outcome === 'WIN') wins[h]++;
+    } catch {}
+  });
+  const hours = [], rates = [], sizes = [];
+  cnt.forEach((c, h) => {
+    if (c > 0) {
+      hours.push(`${String(h).padStart(2,'0')}:00`);
+      rates.push(+(wins[h] / c * 100).toFixed(0));
+      sizes.push(Math.max(8, c * 6));
+    }
+  });
+  if (!hours.length) return;
+
+  Plotly.newPlot('chart-hour', [{
+    x: hours, y: rates,
+    type: 'bar',
+    marker: { color: rates.map(r => r >= 50 ? '#22c55e' : '#ef4444') },
+    hovertemplate: '%{x}: <b>%{y}% Win-Rate</b><extra></extra>',
+  }, {
+    x: hours, y: new Array(hours.length).fill(50),
+    type: 'scatter', mode: 'lines',
+    line: { color: '#f59e0b', width: 1, dash: 'dot' },
+    hoverinfo: 'skip', showlegend: false,
+  }], {
+    ...PLOTLY_LAYOUT,
+    yaxis: { ...PLOTLY_LAYOUT.yaxis, ticksuffix: '%', range: [0, 105] },
+  }, CFG);
+}
+
+// ── Charts rendern ────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  renderEquity();
+  renderWeekday();
+  renderTicker();
+  renderHour();
+  {% set offene = trades | selectattr('outcome', 'eq', 'OFFEN') | list %}
+  {% if offene | length > 0 %}
+  setTimeout(checkTrades, 600);
+  {% endif %}
+});
+
+// ── Aktionen ─────────────────────────────────────────────────────────────────
 function checkTrades() {
   const msg = document.getElementById('check-msg');
   msg.textContent = 'Prüfe…';
@@ -188,14 +358,14 @@ function checkTrades() {
     .then(r => r.json())
     .then(d => {
       msg.textContent = d.aktualisiert > 0
-        ? d.aktualisiert + ' Trade(s) aktualisiert – Seite wird neu geladen…'
-        : 'Alles geprüft – keine neuen Outcomes.';
+        ? `${d.aktualisiert} Trade(s) aktualisiert – wird neu geladen…`
+        : 'Alle geprüft.';
       if (d.aktualisiert > 0) setTimeout(() => location.reload(), 1200);
     });
 }
 
 function manuellSchliessen(id, outcome) {
-  const exitPreis = prompt(`Exit-Preis für Trade #${id} (optional, Enter = Einstiegspreis):`);
+  const exitPreis = prompt(`Exit-Preis für Trade #${id} (Enter = Einstiegspreis):`);
   fetch('/api/journal/close', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -209,15 +379,8 @@ function tradeLoeschen(id) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ id })
-  }).then(() => document.getElementById('row-' + id).remove());
+  }).then(() => document.getElementById('row-' + id)?.remove());
 }
-
-// Offene Trades beim Laden automatisch prüfen
-window.addEventListener('load', () => {
-  {% if trades | selectattr('outcome', 'eq', 'OFFEN') | list | length > 0 %}
-  setTimeout(checkTrades, 800);
-  {% endif %}
-});
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

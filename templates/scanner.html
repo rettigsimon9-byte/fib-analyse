@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal-Scanner – Fibonacci Analyse</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dark-body">
+
+<nav class="analyse-topbar">
+  <a href="/" class="btn btn-sm btn-ghost me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
+  <span class="ticker-badge"><i class="bi bi-radar me-1"></i>Signal-Scanner</span>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/journal" class="btn btn-sm btn-journal"><i class="bi bi-journal-text me-1"></i>Journal</a>
+  </div>
+</nav>
+
+<div class="container-fluid px-3 pt-3 pb-5">
+
+  <!-- Steuerleiste -->
+  <div class="dark-card p-3 mb-3">
+    <div class="row g-2 align-items-end">
+
+      <!-- Zeitraum -->
+      <div class="col-12 col-md-3">
+        <label class="form-label text-muted small mb-1">Zeitraum</label>
+        <select id="scan-periode" class="form-select form-select-sm dark-input">
+          {% for p in scanner_perioden %}
+          <option value="{{ p.key }}">{{ p.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Ticker-Eingabe -->
+      <div class="col-12 col-md-6">
+        <label class="form-label text-muted small mb-1">
+          Watchlist <span class="text-muted">(Komma-getrennt)</span>
+        </label>
+        <input type="text" id="scan-tickers" class="form-control form-control-sm dark-input"
+               placeholder="AAPL, NVDA, BTC-USD, SAP.DE …">
+      </div>
+
+      <!-- Start-Button -->
+      <div class="col-12 col-md-3">
+        <button onclick="startScan()" id="scan-btn" class="btn btn-fib w-100">
+          <i class="bi bi-radar me-1"></i> Scan starten
+        </button>
+      </div>
+    </div>
+
+    <!-- Fortschritt -->
+    <div id="scan-progress" class="mt-2" style="display:none">
+      <div class="d-flex align-items-center gap-2 text-muted small">
+        <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+        <span id="scan-status">Scanne Ticker …</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ergebnis-Zusammenfassung -->
+  <div id="scan-summary" style="display:none" class="row g-3 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="journal-stat-card">
+        <div class="journal-stat-label">Gescannte Ticker</div>
+        <div class="journal-stat-value text-white" id="sum-total">–</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="journal-stat-card">
+        <div class="journal-stat-label">LONG Signale</div>
+        <div class="journal-stat-value text-success" id="sum-long">–</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="journal-stat-card">
+        <div class="journal-stat-label">SHORT Signale</div>
+        <div class="journal-stat-value text-danger" id="sum-short">–</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="journal-stat-card">
+        <div class="journal-stat-label">Kein klares Signal</div>
+        <div class="journal-stat-value text-muted" id="sum-none">–</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ergebnis-Tabelle -->
+  <div id="scan-result" style="display:none">
+
+    <!-- LONG -->
+    <div id="long-section" class="mb-3" style="display:none">
+      <div class="dark-card p-0 overflow-hidden">
+        <div class="p-3 border-bottom" style="border-color:#166534 !important;background:rgba(34,197,94,0.05)">
+          <span class="fw-semibold text-success"><i class="bi bi-arrow-up-circle-fill me-1"></i>LONG Signale</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-dark mb-0 journal-table" id="long-table">
+            <thead><tr>
+              <th>Ticker</th><th>Kurs</th><th>Δ%</th>
+              <th>Stärke</th><th>R:R</th>
+              <th>Einstieg</th><th>TP</th><th>SL</th>
+              <th>RSI</th><th>ADX</th><th>HTF</th>
+              <th>Gründe</th><th></th>
+            </tr></thead>
+            <tbody id="long-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SHORT -->
+    <div id="short-section" class="mb-3" style="display:none">
+      <div class="dark-card p-0 overflow-hidden">
+        <div class="p-3 border-bottom" style="border-color:#991b1b !important;background:rgba(239,68,68,0.05)">
+          <span class="fw-semibold text-danger"><i class="bi bi-arrow-down-circle-fill me-1"></i>SHORT Signale</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-dark mb-0 journal-table" id="short-table">
+            <thead><tr>
+              <th>Ticker</th><th>Kurs</th><th>Δ%</th>
+              <th>Stärke</th><th>R:R</th>
+              <th>Einstieg</th><th>TP</th><th>SL</th>
+              <th>RSI</th><th>ADX</th><th>HTF</th>
+              <th>Gründe</th><th></th>
+            </tr></thead>
+            <tbody id="short-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kein Signal -->
+    <div id="none-section" class="mb-3" style="display:none">
+      <div class="dark-card p-0 overflow-hidden">
+        <div class="p-3 border-bottom border-secondary">
+          <span class="fw-semibold text-muted"><i class="bi bi-dash-circle me-1"></i>Kein klares Signal</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-dark mb-0 journal-table" id="none-table">
+            <thead><tr>
+              <th>Ticker</th><th>Kurs</th><th>Δ%</th><th>RSI</th><th>ADX</th><th>Bullisch %</th><th></th>
+            </tr></thead>
+            <tbody id="none-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Kein Ergebnis -->
+  <div id="scan-empty" style="display:none" class="dark-card p-5 text-center text-muted">
+    <i class="bi bi-search" style="font-size:48px;opacity:.3"></i>
+    <p class="mt-3 mb-0">Keine aktiven Signale gefunden.</p>
+  </div>
+
+</div>
+
+<script>
+// Watchlist aus localStorage laden
+const DEFAULT = {{ default_watchlist | tojson }};
+const stored  = localStorage.getItem('fib_scanner_watchlist');
+document.getElementById('scan-tickers').value = (stored ? JSON.parse(stored) : DEFAULT).join(', ');
+
+function startScan() {
+  const btn      = document.getElementById('scan-btn');
+  const progress = document.getElementById('scan-progress');
+  const status   = document.getElementById('scan-status');
+  const periode  = document.getElementById('scan-periode').value;
+  const raw      = document.getElementById('scan-tickers').value;
+  const tickers  = raw.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+
+  // Watchlist speichern
+  localStorage.setItem('fib_scanner_watchlist', JSON.stringify(tickers));
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Läuft …';
+  progress.style.display = '';
+  status.textContent = `Scanne ${tickers.length} Ticker …`;
+  document.getElementById('scan-summary').style.display = 'none';
+  document.getElementById('scan-result').style.display  = 'none';
+  document.getElementById('scan-empty').style.display   = 'none';
+
+  fetch('/api/scanner', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ tickers, periode })
+  })
+  .then(r => r.json())
+  .then(data => {
+    progress.style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-radar me-1"></i> Scan starten';
+    renderResults(data);
+  })
+  .catch(() => {
+    progress.style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-radar me-1"></i> Scan starten';
+    status.textContent = 'Fehler beim Scan.';
+  });
+}
+
+function fmt(n, d=2) { return n != null ? Number(n).toFixed(d) : '–'; }
+
+function htfBadge(trend) {
+  if (trend === 'bullisch') return '<span class="badge bg-success">↑ Bull</span>';
+  if (trend === 'baerisch') return '<span class="badge bg-danger">↓ Bear</span>';
+  return '<span class="badge bg-secondary">–</span>';
+}
+
+function signalRow(r, richtung) {
+  const changeClass = r.change_pct >= 0 ? 'text-success' : 'text-danger';
+  const rrClass     = r.rr >= 2 ? 'text-success' : r.rr >= 1.5 ? 'text-warning' : 'text-danger';
+  const rsiClass    = r.rsi < 35 ? 'text-success' : r.rsi > 65 ? 'text-danger' : '';
+  const gruende     = (r.gruende || []).slice(0,2).join(' · ');
+  return `<tr>
+    <td><a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
+           class="text-warning fw-bold text-decoration-none">${r.ticker}</a>
+        <span class="text-muted small d-block">${r.name || ''}</span></td>
+    <td class="fw-mono">${fmt(r.aktuell)}</td>
+    <td class="${changeClass}">${r.change_pct >= 0 ? '+' : ''}${fmt(r.change_pct)}%</td>
+    <td><span class="badge ${richtung === 'LONG' ? 'bg-success' : 'bg-danger'}">${r.staerke}%</span></td>
+    <td class="${rrClass} fw-bold">${r.rr}:1</td>
+    <td class="fw-mono">${fmt(r.einstieg)}</td>
+    <td class="fw-mono ${richtung === 'LONG' ? 'text-success' : 'text-danger'}">${fmt(r.take_profit)} <span class="text-muted small">${richtung === 'LONG' ? '+' : '-'}${fmt(r.tp_pct)}%</span></td>
+    <td class="fw-mono text-danger">${fmt(r.stop_loss)} <span class="text-muted small">-${fmt(r.sl_pct)}%</span></td>
+    <td class="${rsiClass}">${fmt(r.rsi, 0)}</td>
+    <td class="text-muted">${fmt(r.adx, 0)}</td>
+    <td>${htfBadge(r.htf_trend)}</td>
+    <td class="text-muted small" style="max-width:200px">${gruende}</td>
+    <td>
+      <a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
+         class="btn btn-xs-period">Details</a>
+    </td>
+  </tr>`;
+}
+
+function noSignalRow(r) {
+  const changeClass  = r.change_pct >= 0 ? 'text-success' : 'text-danger';
+  const bullClass    = r.bullisch_pct >= 55 ? 'text-success' : r.bullisch_pct <= 45 ? 'text-danger' : 'text-muted';
+  return `<tr>
+    <td><a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
+           class="text-muted text-decoration-none">${r.ticker}</a>
+        <span class="text-muted small d-block">${r.name || ''}</span></td>
+    <td class="fw-mono text-muted">${fmt(r.aktuell)}</td>
+    <td class="${changeClass} small">${r.change_pct >= 0 ? '+' : ''}${fmt(r.change_pct)}%</td>
+    <td class="text-muted">${fmt(r.rsi, 0)}</td>
+    <td class="text-muted">${fmt(r.adx, 0)}</td>
+    <td class="${bullClass}">${fmt(r.bullisch_pct, 0)}%</td>
+    <td><a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
+           class="btn btn-xs-period">Details</a></td>
+  </tr>`;
+}
+
+function renderResults(data) {
+  document.getElementById('sum-total').textContent = data.n_total;
+  document.getElementById('sum-long').textContent  = data.n_long;
+  document.getElementById('sum-short').textContent = data.n_short;
+  document.getElementById('sum-none').textContent  = data.kein_signal?.length || 0;
+  document.getElementById('scan-summary').style.display = '';
+
+  const hasAny = data.n_long > 0 || data.n_short > 0 || (data.kein_signal?.length > 0);
+  if (!hasAny) {
+    document.getElementById('scan-empty').style.display = '';
+    return;
+  }
+  document.getElementById('scan-result').style.display = '';
+
+  // LONG
+  if (data.long_signals?.length > 0) {
+    document.getElementById('long-section').style.display = '';
+    document.getElementById('long-body').innerHTML =
+      data.long_signals.map(r => signalRow(r, 'LONG')).join('');
+  }
+
+  // SHORT
+  if (data.short_signals?.length > 0) {
+    document.getElementById('short-section').style.display = '';
+    document.getElementById('short-body').innerHTML =
+      data.short_signals.map(r => signalRow(r, 'SHORT')).join('');
+  }
+
+  // Kein Signal
+  if (data.kein_signal?.length > 0) {
+    document.getElementById('none-section').style.display = '';
+    document.getElementById('none-body').innerHTML =
+      data.kein_signal.map(r => noSignalRow(r)).join('');
+  }
+}
+
+// Automatisch starten beim Laden
+window.addEventListener('load', () => startScan());
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, redirect
 from analyse import analysiere, PERIODEN
 from backtest import backtest_daytrade
+from scanner import scan_tickers, DEFAULT_WATCHLIST, SCANNER_PERIODEN
 from journal import (
     init_db, speichere_trade, pruefe_offene_trades,
     schliesse_trade, loesche_trade, lade_journal, lade_statistiken,
@@ -189,6 +190,20 @@ def api_analyse():
     return jsonify(analysiere(ticker, periode))
 
 # ── Journal ───────────────────────────────────────────────────────────────────
+
+@app.route('/scanner')
+def scanner_view():
+    return render_template('scanner.html',
+        default_watchlist=DEFAULT_WATCHLIST,
+        scanner_perioden=SCANNER_PERIODEN,
+    )
+
+@app.route('/api/scanner', methods=['POST'])
+def api_scanner():
+    d       = request.get_json(force=True) or {}
+    tickers = d.get('tickers', DEFAULT_WATCHLIST)
+    periode = d.get('periode', '1d')
+    return jsonify(scan_tickers(tickers, periode))
 
 @app.route('/journal')
 def journal_view():
