@@ -236,7 +236,7 @@ function signalRow(r, richtung) {
     <td class="d-flex gap-1 flex-nowrap">
       <a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
          class="btn btn-xs-period">Details</a>
-      <button onclick="scannerJournalSave(${JSON.stringify(r).replace(/'/g,"&#39;")})"
+      <button onclick="scannerJournalSave(this, ${JSON.stringify(r).replace(/'/g,"&#39;")})"
               class="btn btn-xs-period" style="border-color:#3b82f6;color:#3b82f6"
               title="Ins Journal speichern">📓</button>
     </td>
@@ -296,7 +296,7 @@ function renderResults(data) {
   }
 }
 
-function scannerJournalSave(r) {
+function scannerJournalSave(btn, r) {
   fetch('/api/journal/save', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -316,11 +316,10 @@ function scannerJournalSave(r) {
   .then(res => res.json())
   .then(data => {
     if (data.ok) {
-      // Button kurz grün färben als Bestätigung
-      event.target.textContent = '✅';
-      event.target.style.borderColor = '#22c55e';
-      event.target.style.color = '#22c55e';
-      event.target.disabled = true;
+      btn.textContent = '✅';
+      btn.style.borderColor = '#22c55e';
+      btn.style.color = '#22c55e';
+      btn.disabled = true;
     } else {
       alert('Fehler: ' + (data.fehler || 'Unbekannt'));
     }
