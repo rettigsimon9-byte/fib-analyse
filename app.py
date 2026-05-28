@@ -1,6 +1,12 @@
 from flask import Flask, render_template, request, jsonify, redirect
 from analyse import analysiere, PERIODEN
 from backtest import backtest_daytrade
+from journal import (
+    init_db, speichere_trade, pruefe_offene_trades,
+    schliesse_trade, loesche_trade, lade_journal, lade_statistiken,
+)
+
+init_db()
 
 app = Flask(__name__)
 
@@ -181,6 +187,57 @@ def api_analyse():
     ticker  = request.args.get('ticker', '').strip().upper()
     periode = request.args.get('periode', '1y')
     return jsonify(analysiere(ticker, periode))
+
+# ── Journal ───────────────────────────────────────────────────────────────────
+
+@app.route('/journal')
+def journal_view():
+    pruefe_offene_trades()
+    trades = lade_journal()
+    stats  = lade_statistiken()
+    return render_template('journal.html', trades=trades, stats=stats)
+
+@app.route('/api/journal/save', methods=['POST'])
+def api_journal_save():
+    d = request.get_json(force=True) or {}
+    try:
+        trade_id = speichere_trade(
+            ticker      = d['ticker'],
+            periode     = d.get('periode', '?'),
+            richtung    = d['richtung'],
+            einstieg    = float(d['einstieg']),
+            take_profit = float(d['take_profit']),
+            stop_loss   = float(d['stop_loss']),
+            tp_pct      = float(d['tp_pct']),
+            sl_pct      = float(d['sl_pct']),
+            rr          = float(d['rr']),
+            waehrung    = d.get('waehrung', 'EUR'),
+        )
+        return jsonify({'ok': True, 'id': trade_id})
+    except Exception as e:
+        return jsonify({'ok': False, 'fehler': str(e)}), 400
+
+@app.route('/api/journal/check', methods=['POST'])
+def api_journal_check():
+    n = pruefe_offene_trades()
+    return jsonify({'ok': True, 'aktualisiert': n})
+
+@app.route('/api/journal/close', methods=['POST'])
+def api_journal_close():
+    d = request.get_json(force=True) or {}
+    ok = schliesse_trade(
+        trade_id   = int(d['id']),
+        outcome    = d['outcome'],
+        exit_preis = float(d['exit_preis']) if d.get('exit_preis') else None,
+        notiz      = d.get('notiz', ''),
+    )
+    return jsonify({'ok': ok})
+
+@app.route('/api/journal/delete', methods=['POST'])
+def api_journal_delete():
+    d = request.get_json(force=True) or {}
+    loesche_trade(int(d['id']))
+    return jsonify({'ok': True})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=False)
