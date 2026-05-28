@@ -233,9 +233,12 @@ function signalRow(r, richtung) {
     <td class="text-muted">${fmt(r.adx, 0)}</td>
     <td>${htfBadge(r.htf_trend)}</td>
     <td class="text-muted small" style="max-width:200px">${gruende}</td>
-    <td>
+    <td class="d-flex gap-1 flex-nowrap">
       <a href="/analyse?ticker=${r.ticker}&periode=${document.getElementById('scan-periode').value}"
          class="btn btn-xs-period">Details</a>
+      <button onclick="scannerJournalSave(${JSON.stringify(r).replace(/'/g,"&#39;")})"
+              class="btn btn-xs-period" style="border-color:#3b82f6;color:#3b82f6"
+              title="Ins Journal speichern">📓</button>
     </td>
   </tr>`;
 }
@@ -291,6 +294,38 @@ function renderResults(data) {
     document.getElementById('none-body').innerHTML =
       data.kein_signal.map(r => noSignalRow(r)).join('');
   }
+}
+
+function scannerJournalSave(r) {
+  fetch('/api/journal/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      ticker:      r.ticker,
+      periode:     document.getElementById('scan-periode').value,
+      richtung:    r.richtung,
+      einstieg:    r.einstieg,
+      take_profit: r.take_profit,
+      stop_loss:   r.stop_loss,
+      tp_pct:      r.tp_pct,
+      sl_pct:      r.sl_pct,
+      rr:          r.rr,
+      waehrung:    r.waehrung || 'USD',
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.ok) {
+      // Button kurz grün färben als Bestätigung
+      event.target.textContent = '✅';
+      event.target.style.borderColor = '#22c55e';
+      event.target.style.color = '#22c55e';
+      event.target.disabled = true;
+    } else {
+      alert('Fehler: ' + (data.fehler || 'Unbekannt'));
+    }
+  })
+  .catch(() => alert('Verbindungsfehler'));
 }
 
 // Automatisch starten beim Laden
