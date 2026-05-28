@@ -7,12 +7,10 @@ statt 20 × 3s = 60s dauert ein Scan nur ~4-6s.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from analyse import analysiere, PERIODEN
 
-# Standard-Watchlist (wird in der App per localStorage erweitert)
+# Standard-Watchlist — bewusst kurz gehalten (Free-Tier Timeout)
 DEFAULT_WATCHLIST = [
-    'AAPL', 'NVDA', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'META', 'AMD',
-    'BTC-USD', 'ETH-USD', 'SOL-USD',
-    'SAP.DE', 'SIE.DE', 'ALV.DE', 'BMW.DE', 'MBG.DE', 'VOW3.DE',
-    'DAX', 'SPY', 'QQQ',
+    'AAPL', 'NVDA', 'TSLA', 'BTC-USD', 'ETH-USD',
+    'SAP.DE', 'SIE.DE', 'SPY',
 ]
 
 SCANNER_PERIODEN = [
