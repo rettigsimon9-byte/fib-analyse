@@ -535,6 +535,32 @@
 .journal-table td { border-color: var(--border) !important; vertical-align: middle; font-size: 13px; }
 .journal-table tr:hover td { background: rgba(255,255,255,0.02); }
 
+/* ── Partieller TP + Zeitlimit ─────────────────────────────────────────────── */
+.partial-tp-box {
+  background: rgba(245,158,11,0.07);
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.partial-tp-label { color: #cbd5e1; margin-bottom: 6px; }
+.partial-tp-levels { display: flex; flex-direction: column; gap: 3px; }
+.partial-tp-item   { font-size: 13px; }
+
+.zeitlimit-box {
+  background: rgba(99,102,241,0.07);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #cbd5e1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 /* ── Bootstrap Dark Overrides ──────────────────────────────────────────────── */
 .table-dark { background: transparent !important; }
 .table-dark tbody tr:hover { background: rgba(255,255,255,0.03) !important; }

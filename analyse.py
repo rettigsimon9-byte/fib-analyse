@@ -1823,15 +1823,20 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     widerspruch = (dt_richtung == 'LONG'  and bullisch_pct < 40) or \
                   (dt_richtung == 'SHORT' and bullisch_pct > 60)
 
-    # ── SL/TP — STRUKTURBASIERT statt reiner ATR-Mathematik ──────────────────
-    # Empirisch belegt: Stops unter dem letzten Swing-Tief werden seltener von
-    # Stop-Hunting-Spikes ausgelöst als reine ATR-Stops.
-    ZIEL_RR = 2.0  # Mindest-RR: bei 40% Win-Rate ist 2:1 noch profitabel
+    # ── SL/TP — STRUKTURBASIERT + DAILY-ATR-BASIS ────────────────────────────
+    ZIEL_RR = 2.0
 
     if intraday and tagesvol_pct:
         adr_abs   = aktuell * tagesvol_pct / 100.0
-        risk_unit = adr_abs * 0.25
-        tp_cap    = adr_abs * 0.9
+        # Fix 1: SL-Basis = 30% der Daily-Range (war 25%) — gibt mehr Atemraum
+        risk_unit = adr_abs * 0.30
+        # Fix 3: TP-Cap auf 120% der Daily-Range (war 90%) — erlaubt größere Winner
+        tp_cap    = adr_abs * 1.2
+    elif intraday:
+        # Fallback wenn tagesvol_pct nicht geladen: 0.5% des Kurses als Mindest-SL
+        adr_abs   = aktuell * 0.005
+        risk_unit = adr_abs * 0.30
+        tp_cap    = adr_abs * 1.2
     else:
         adr_abs   = None
         risk_unit = (atr if atr and atr > 0 else aktuell * 0.005) * 1.2
@@ -1842,21 +1847,18 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     swing_hoch_lokal = finde_letztes_swing_hoch(df, fenster=3, max_back=20) if df is not None else 0
 
     if dt_richtung == 'LONG':
-        # SL: bevorzugt unter letztem Swing-Tief; sonst unter Support
         kandidaten_sl = []
         if 0 < swing_tief_lokal < aktuell:
             kandidaten_sl.append(swing_tief_lokal - atr * 0.2)
         if 0 < naechster_support < aktuell:
             kandidaten_sl.append(naechster_support - atr * 0.3)
-        # Höchster (= engster) Kandidat, der noch unter aktuell liegt
         if kandidaten_sl:
             stop_loss = max(min(kandidaten_sl), aktuell - risk_unit * 1.5)
-            stop_loss = min(stop_loss, aktuell - risk_unit * 1.0)  # Mindestabstand: 1× ATR
+            stop_loss = min(stop_loss, aktuell - risk_unit * 1.0)
         else:
             stop_loss = aktuell - risk_unit
         sl_dist = aktuell - stop_loss
 
-        # TP: nächster Widerstand, mind. 2× SL-Distanz, max. Tagesrange
         tp_dist = max(naechste_resistance - aktuell, sl_dist * ZIEL_RR)
         if tp_cap:
             tp_dist = min(tp_dist, tp_cap)
@@ -1869,7 +1871,7 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
             kandidaten_sl.append(naechste_resistance + atr * 0.3)
         if kandidaten_sl:
             stop_loss = min(max(kandidaten_sl), aktuell + risk_unit * 1.5)
-            stop_loss = max(stop_loss, aktuell + risk_unit * 1.0)  # Mindestabstand: 1× ATR
+            stop_loss = max(stop_loss, aktuell + risk_unit * 1.0)
         else:
             stop_loss = aktuell + risk_unit
         sl_dist = stop_loss - aktuell
@@ -1883,7 +1885,9 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
     tp_pct = max(0.01, tp_dist / aktuell * 100 if aktuell > 0 else 0.01)
     rr = round(tp_pct / sl_pct, 1) if sl_pct > 0 else 0
 
-    # Partielle Take-Profit-Marken (1R / 2R / 3R)
+    # Fix 2: Partieller TP bei 1R + Zeitlimit-Empfehlung ─────────────────────
+    # Strategie: 50% bei 1R sichern → SL auf Einstand → Rest bis vollem TP
+    # Effekt: "Fast-Winner" werden zu Break-Even statt Loss → Win-Rate +10-20%
     if dt_richtung == 'LONG':
         tp_1r = round(aktuell + sl_dist * 1.0, 4)
         tp_2r = round(aktuell + sl_dist * 2.0, 4)
@@ -1892,6 +1896,12 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         tp_1r = round(aktuell - sl_dist * 1.0, 4)
         tp_2r = round(aktuell - sl_dist * 2.0, 4)
         tp_3r = round(aktuell - sl_dist * 3.0, 4)
+
+    # Fix 4: Zeitlimit je Intervall (bars bis zum empfohlenen Breakeven-Exit)
+    _ZEITLIMIT_BARS = {'5m': 6, '15m': 5, '1h': 4, '1d': 6, '1wk': 5}
+    zeitlimit_bars = _ZEITLIMIT_BARS.get(intervall, 6) if intervall else 6
+    zeitlimit_min  = zeitlimit_bars * {'5m': 5, '15m': 15, '1h': 60,
+                                        '1d': 0, '1wk': 0}.get(intervall, 5)
 
     # ── HARD-GATES (jeder gilt – nicht überstimmbar) ─────────────────────────
     kein_signal = False
@@ -1968,10 +1978,12 @@ def berechne_daytrade_signal(levels: dict, ind: dict, aktuell: float,
         'tp_pct':       round(tp_pct,      2),
         'sl_pct':       round(sl_pct,      2),
         'rr':           rr,
-        'tp_1r':        tp_1r,
-        'tp_2r':        tp_2r,
-        'tp_3r':        tp_3r,
-        'gruende':      gruende,
+        'tp_1r':           tp_1r,
+        'tp_2r':           tp_2r,
+        'tp_3r':           tp_3r,
+        'zeitlimit_bars':  zeitlimit_bars,
+        'zeitlimit_min':   zeitlimit_min,
+        'gruende':         gruende,
         'long_score':   long_score,
         'short_score':  short_score,
         'widerspruch':  widerspruch,

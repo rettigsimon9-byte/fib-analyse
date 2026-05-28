@@ -23,6 +23,9 @@
       <i id="autorefresh-icon" class="bi bi-arrow-clockwise"></i>
       <span id="autorefresh-label">Auto: AUS</span>
     </button>
+    <a href="/journal" class="btn btn-sm btn-journal" title="Trade Journal">
+      <i class="bi bi-journal-text me-1"></i>Journal
+    </a>
     <a href="/multi?ticker={{ d.ticker }}" class="btn btn-sm btn-ghost" title="Multi-Timeframe Ansicht">
       <i class="bi bi-layers me-1"></i>Multi-TF
     </a>
@@ -347,6 +350,47 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Partieller TP + Zeitlimit -->
+    <div class="row g-2 mt-1">
+      <div class="col-12 col-md-6">
+        <div class="partial-tp-box">
+          <div class="partial-tp-label">
+            <i class="bi bi-scissors me-1"></i>
+            Empfehlung: <strong>50% bei 1R sichern</strong>, dann SL auf Einstand
+          </div>
+          <div class="partial-tp-levels">
+            <span class="partial-tp-item text-warning">
+              1R&nbsp;<strong>{{ '%.2f'|format(dt.tp_1r) }}</strong>
+              <span class="text-muted small">&nbsp;→ 50% schließen + SL auf {{ '%.2f'|format(dt.einstieg) }}</span>
+            </span>
+            <span class="partial-tp-item {% if dt.richtung == 'LONG' %}text-success{% else %}text-danger{% endif %}">
+              2R&nbsp;<strong>{{ '%.2f'|format(dt.tp_2r) }}</strong>
+              <span class="text-muted small">&nbsp;→ Rest schließen</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      {% if dt.zeitlimit_min %}
+      <div class="col-12 col-md-6">
+        <div class="zeitlimit-box">
+          <i class="bi bi-stopwatch me-1"></i>
+          <strong>Zeitlimit:</strong> Falls nach
+          <strong>{{ dt.zeitlimit_bars }} Bars ({{ dt.zeitlimit_min }} Min.)</strong>
+          kein Gewinn → Breakeven-Exit. Tote Trades binden Kapital.
+        </div>
+      </div>
+      {% else %}
+      <div class="col-12 col-md-6">
+        <div class="zeitlimit-box">
+          <i class="bi bi-stopwatch me-1"></i>
+          <strong>Zeitlimit:</strong> Falls nach
+          <strong>{{ dt.zeitlimit_bars }} Bars</strong>
+          kein Gewinn → Breakeven-Exit. Tote Trades binden Kapital.
+        </div>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Widerspruchs-Warnung -->
